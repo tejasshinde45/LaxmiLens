@@ -2,19 +2,33 @@
 
 :root {
   color-scheme: dark;
-  --bg-primary: #101010;
-  --surface-primary: #1B1B1B;
+  --background: #101010;
+  --surface: #1B1B1B;
   --surface-elevated: #242424;
   --surface-hover: #2A2A2A;
-  --border-subtle: #303030;
+
+  --border: #303030;
   --border-strong: #454545;
-  --gold-primary: #D6AD60;
-  --gold-hover: #E2BE7D;
-  --gold-active: #B88E46;
-  --gold-muted: #80683C;
+
+  --primary: #D6AD60;
+  --primary-hover: #E2BE7D;
+  --primary-active: #B88E46;
+  --primary-muted: #80683C;
+
   --text-primary: #F5F1E8;
   --text-secondary: #B9B4AA;
   --text-muted: #858078;
+
+  --income: #72B895;
+  --expense: #D9827C;
+  --transfer: #82A9CF;
+  --warning: #E4B66D;
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
 }
 
 html,
@@ -22,18 +36,19 @@ body {
   height: 100%;
   margin: 0;
   padding: 0;
-  background-color: var(--bg-primary);
+  background-color: var(--background);
   color: var(--text-primary);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+  overflow-x: hidden;
 }
 
 /* Custom Scrollbars for Obsidian Theme */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {
@@ -42,7 +57,7 @@ body {
 
 ::-webkit-scrollbar-thumb {
   background: #303030;
-  border-radius: 3px;
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
@@ -51,8 +66,14 @@ body {
 
 /* Focus Outline Consistency */
 :focus-visible {
-  outline: 2px solid var(--gold-primary);
+  outline: 2px solid var(--primary);
   outline-offset: 2px;
+}
+
+/* Text Selection */
+::selection {
+  background-color: #80683C;
+  color: #F5F1E8;
 }
 
 /* Reduced motion preference */

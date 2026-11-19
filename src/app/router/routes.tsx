@@ -1,19 +1,13 @@
-import React from 'react';
-import { createBrowserRouter } from 'react-router-dom';
+import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { AppLayout } from '../layouts/AppLayout';
-import { Card } from '@/components/ui/Card';
-
-const PlaceholderView: React.FC<{ title: string; description: string }> = ({
-  title,
-  description
-}) => (
-  <div className="space-y-4">
-    <h1 className="text-2xl font-bold tracking-tight text-[#F5F1E8]">{title}</h1>
-    <Card>
-      <p className="text-sm text-[#B9B4AA]">{description}</p>
-    </Card>
-  </div>
-);
+import { DashboardPage } from '@/features/dashboard/DashboardPage';
+import { TransactionsPage } from '@/features/transactions/TransactionsPage';
+import { AccountsPage } from '@/features/accounts/AccountsPage';
+import { BudgetsPage } from '@/features/budgets/BudgetsPage';
+import { AnalyticsPage } from '@/features/analytics/AnalyticsPage';
+import { CalendarPage } from '@/features/calendar/CalendarPage';
+import { ReportsPage } from '@/features/reports/ReportsPage';
+import { SettingsPage } from '@/features/settings/SettingsPage';
 
 export const router = createBrowserRouter([
   {
@@ -22,48 +16,43 @@ export const router = createBrowserRouter([
     children: [
       {
         index: true,
-        element: (
-          <PlaceholderView
-            title="Dashboard"
-            description="Architectural foundation active. Dashboard view will render financial summaries, cashflow trends, and recent ledger entries."
-          />
-        )
+        element: <Navigate to="/dashboard" replace />
+      },
+      {
+        path: 'dashboard',
+        element: <DashboardPage />
       },
       {
         path: 'transactions',
-        element: (
-          <PlaceholderView
-            title="Transactions"
-            description="Transactional ledger view for offline capture, filtering, and reconciliation."
-          />
-        )
+        element: <TransactionsPage />
       },
       {
         path: 'accounts',
-        element: (
-          <PlaceholderView
-            title="Accounts"
-            description="Manage Bank, Cash, UPI, Wallet, and Credit Card accounts with strict derived balances."
-          />
-        )
+        element: <AccountsPage />
+      },
+      {
+        path: 'budgets',
+        element: <BudgetsPage />
       },
       {
         path: 'analytics',
-        element: (
-          <PlaceholderView
-            title="Analytics"
-            description="Spending analytics, monthly budget breakdown, and net worth historical trajectories."
-          />
-        )
+        element: <AnalyticsPage />
+      },
+      {
+        path: 'calendar',
+        element: <CalendarPage />
+      },
+      {
+        path: 'reports',
+        element: <ReportsPage />
       },
       {
         path: 'settings',
-        element: (
-          <PlaceholderView
-            title="Settings"
-            description="Application settings, sync status, and data export configuration."
-          />
-        )
+        element: <SettingsPage />
+      },
+      {
+        path: '*',
+        element: <Navigate to="/dashboard" replace />
       }
     ]
   }
