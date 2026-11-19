@@ -10,17 +10,20 @@ LaxmiLens is architected as an offline-first, client-centric Progressive Web App
 │                                                                        │
 │   React 19 Components  │  Radix UI  │  Tailwind CSS v4 (Obsidian Gold)  │
 │   React Router         │  TanStack Query (View-Model Cache Only)       │
+│   Auth Pages           │  LoginPage, RegisterPage, ForgotPass, Reset   │
+│   Route Guards         │  ProtectedRoute, GuestRoute, AuthCallbackPage │
 └───────────────────────────────────┬────────────────────────────────────┘
-                                    │ Invokes Use Cases
+                                    │ Invokes Use Cases & Context
                                     ▼
 ┌────────────────────────────────────────────────────────────────────────┐
 │                         APPLICATION LAYER                              │
 │                                                                        │
+│   Auth: Session management, profile hydration                          │
 │   Accounts: CreateAccount, UpdateAccount, ArchiveAccount, GetBalance   │
 │   Categories: CreateCategory                                           │
 │   Transactions: CreateTransaction, UpdateTransaction, DeleteTransaction│
 │                 GetTransactions, ExecuteTransfer, RecordTransaction    │
-│   Ports: SyncPort, StoragePort, LoggerPort, AuthPort                   │
+│   Ports: AuthPort, SyncPort, StoragePort, LoggerPort                   │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │ Coordinates Core Models
                                     ▼
@@ -34,21 +37,23 @@ LaxmiLens is architected as an offline-first, client-centric Progressive Web App
 └───────────────────────────────────▲────────────────────────────────────┘
                                     │ Implements Contracts
                                     │
-┌───────────────────────────────────┴────────────────────────────────────┐
+┌────────────────────────────────────────────────────────────────────────┐
 │                       INFRASTRUCTURE LAYER                             │
 │                                                                        │
-│   Dexie v2 (IndexedDB)          │   Transactional Outbox               │
-│   Dexie Repositories (CRUD)     │   Background SyncEngine              │
-│   Supabase Client (Cloud)       │   Console / Structured Logger        │
+│   SupabaseAuthAdapter           │   Transactional Outbox               │
+│   Dexie v2 (IndexedDB)          │   Background SyncEngine              │
+│   Dexie Repositories (CRUD)     │   Console / Structured Logger        │
+│   Supabase Client (Cloud)       │   Row Mappers                        │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │ HTTPS / WSS
                                     ▼
 ┌────────────────────────────────────────────────────────────────────────┐
 │                         SUPABASE CLOUD                                 │
 │                                                                        │
-│   PostgreSQL (BIGINT Paise)     │   Row Level Security (RLS)           │
-│   Cross-Tenant Trigger Checks   │   Atomic Transfer RPC Function       │
-│   Auth (Email & Google OAuth)   │   Cloud Source of Truth              │
+│   Supabase Auth (GoTrue)        │   Row Level Security (RLS)           │
+│   PostgreSQL (BIGINT Paise)     │   Cross-Tenant Trigger Checks        │
+│   Auth Trigger Provisioning     │   Atomic Transfer RPC Function       │
+│   Google OAuth 2.0 Provider     │   Cloud Source of Truth              │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -58,15 +63,15 @@ LaxmiLens is architected as an offline-first, client-centric Progressive Web App
 
 ### Presentation Layer (`src/app/`, `src/features/`, `src/components/`)
 - Renders responsive UI views conforming to the Obsidian Gold design tokens.
+- Authentication pages: `LoginPage`, `RegisterPage`, `ForgotPasswordPage`, `ResetPasswordPage`, `AuthCallbackPage`.
+- Route guards: `ProtectedRoute` (guards financial views), `GuestRoute` (guards unauthenticated forms).
 - Uses TanStack Query hooks strictly for UI cache observation, not as persistent storage.
-- **Strict Invariant**: UI components must never perform direct IndexedDB queries or Supabase SQL queries. All write operations invoke Application Use Cases.
+- **Strict Invariant**: UI components must never perform direct IndexedDB queries or Supabase SQL queries. All write operations invoke Application Use Cases or Auth Context.
 
 ### Application Layer (`src/application/`)
-- Encapsulates user actions into single-responsibility Use Cases:
-  - `CreateAccountUseCase`, `UpdateAccountUseCase`, `ArchiveAccountUseCase`, `GetAccountBalanceUseCase`.
-  - `CreateCategoryUseCase`.
-  - `CreateTransactionUseCase`, `UpdateTransactionUseCase`, `DeleteTransactionUseCase`, `GetTransactionsUseCase`, `ExecuteTransferUseCase`.
-- Orchestrates input validation, domain rule execution, and repository persistence.
+- Contracts defined in `AuthPort.ts`:
+  - `getCurrentUser`, `signInWithEmail`, `signUpWithEmail`, `signInWithOAuth`, `signOut`, `resetPasswordForEmail`, `updatePassword`, `onAuthStateChange`.
+- Financial use cases for Accounts, Categories, Transactions, and Balances.
 - Decoupled from persistent store mechanics; communicates via domain repository contracts.
 
 ### Domain Layer (`src/domain/`)
@@ -74,19 +79,19 @@ LaxmiLens is architected as an offline-first, client-centric Progressive Web App
   - `Money`: Immutable value object enforcing integer paise arithmetic and zero floating-point drift.
   - `LedgerRules`: Pure domain functions computing derived balances ($\text{Opening} + \text{Income} - \text{Expenses} - \text{Transfers Out} + \text{Transfers In}$), cash flow totals, and net worth.
   - Entities: `Profile`, `Account`, `Category`, `Transaction` with domain invariants.
-  - Domain Errors: `InvalidTransactionAmountError`, `CategoryTypeMismatchError`, `MissingAccountError`, `SelfTransferError`, `UnauthorizedEntityAccessError`.
 - **Strict Invariant**: Zero imports from React, Dexie, Supabase, or browser APIs.
 
 ### Infrastructure Layer (`src/infrastructure/`)
+- `SupabaseAuthAdapter`: Implements `AuthPort` using official `@supabase/supabase-js` client. Sanitizes errors, manages OAuth redirects, and suppresses raw database stack traces.
 - Implements domain repository interfaces (`DexieAccountRepository`, `DexieCategoryRepository`, `DexieTransactionRepository`, `DexieProfileRepository`).
 - Manages Dexie schema upgrades (Version 1 $\rightarrow$ Version 2) non-destructively.
-- Encapsulates cloud client access, remote mappers, and outbox synchronization.
 
 ---
 
-## 3. Financial Data Integrity Principles
+## 3. Financial Data Integrity & Security Principles
 
 1. **Integer Paise Precision**: All currency quantities are stored as integer paise (`BIGINT` in database, integer `number` in JS). ₹1,250.75 is represented as `125075`.
 2. **Derived Ledger Balances**: Account balances are derived from opening balances and ledger transactions. They are never independently edited.
 3. **Soft-Deletion**: Transactions are soft-deleted via `deletedAt` timestamps. Soft-deleted transactions are excluded from active ledger balance calculations.
 4. **Tenant Isolation**: Every database row references `user_id`. Supabase RLS enforces `auth.uid() = user_id`. PostgreSQL trigger `validate_transaction_ownership` validates that account, destination account, and category all belong to the user.
+5. **Session Safety**: Unauthenticated users are redirected to login. User changes flush in-memory TanStack query cache via `queryClient.clear()`.

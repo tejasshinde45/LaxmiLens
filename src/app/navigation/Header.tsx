@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useLocation, Link } from 'react-router-dom';
+import { toast } from 'sonner';
 import {
   Search,
   Bell,
@@ -13,6 +14,7 @@ import {
 import { Avatar } from '@/components/ui/Avatar';
 import { IconButton } from '@/components/ui/IconButton';
 import { Badge } from '@/components/ui/Badge';
+import { useAuth } from '@/features/auth/hooks/useAuth';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -41,7 +43,17 @@ export const Header: React.FC<HeaderProps> = ({
   className
 }) => {
   const location = useLocation();
+  const { user, signOut } = useAuth();
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+      toast.success('Signed out successfully');
+    } catch {
+      toast.error('Sign out failed');
+    }
+  };
 
   // Derive human-readable page title
   const getPageTitle = (pathname: string): string => {
@@ -151,15 +163,17 @@ export const Header: React.FC<HeaderProps> = ({
                 aria-label="User account menu"
                 className="flex items-center gap-2 rounded-full p-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D6AD60] cursor-pointer"
               >
-                <Avatar name="Tejas" size="sm" />
+                <Avatar name={user?.displayName || user?.email || 'User'} size="sm" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuLabel>
                 <div className="flex flex-col space-y-0.5">
-                  <span className="text-xs font-semibold text-[#F5F1E8]">Personal Account</span>
+                  <span className="text-xs font-semibold text-[#F5F1E8]">
+                    {user?.displayName || 'Personal Account'}
+                  </span>
                   <span className="text-[10px] text-[#858078] lowercase truncate">
-                    tejas@laxmilens.app
+                    {user?.email || 'authenticated user'}
                   </span>
                 </div>
               </DropdownMenuLabel>
@@ -183,7 +197,7 @@ export const Header: React.FC<HeaderProps> = ({
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem variant="danger">
+              <DropdownMenuItem variant="danger" onClick={handleSignOut} className="cursor-pointer">
                 <LogOut className="h-3.5 w-3.5" />
                 <span>Sign Out</span>
                 <DropdownMenuShortcut>⇧Q</DropdownMenuShortcut>
