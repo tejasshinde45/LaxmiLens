@@ -1,0 +1,50 @@
+@import "tailwindcss";
+
+@theme {
+  /* Obsidian Gold Design System Palette */
+  --color-obsidian-bg: #101010;
+  --color-obsidian-surface: #1B1B1B;
+  --color-obsidian-elevated: #242424;
+  --color-obsidian-hover: #2A2A2A;
+  --color-obsidian-border: #303030;
+  --color-obsidian-border-strong: #454545;
+
+  /* Gold Accent System */
+  --color-gold-primary: #D6AD60;
+  --color-gold-hover: #E2BE7D;
+  --color-gold-active: #B88E46;
+  --color-gold-muted: #80683C;
+
+  /* Typography / Content Colors */
+  --color-text-primary: #F5F1E8;
+  --color-text-secondary: #B9B4AA;
+  --color-text-muted: #858078;
+
+  /* Semantic Financial Indicators */
+  --color-finance-income: #72B895;
+  --color-finance-expense: #D9827C;
+  --color-finance-transfer: #82A9CF;
+  --color-finance-warning: #E4B66D;
+
+  /* Fonts */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+/* Custom Utilities for Tabular Financial Numbers */
+@utility font-tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@utility bg-surface {
+  background-color: var(--color-obsidian-surface);
+}
+
+@utility bg-surface-elevated {
+  background-color: var(--color-obsidian-elevated);
+}
+
+@utility border-subtle {
+  border-color: var(--color-obsidian-border);
+}
