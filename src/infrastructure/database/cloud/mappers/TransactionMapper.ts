@@ -1,69 +1,97 @@
-import { Transaction } from '@/domain/entities/Transaction';
-import { Money } from '@/domain/value-objects/Money';
+import { Transaction, TransactionType } from '@/domain/entities/Transaction';
 import {
   createTransactionId,
   createAccountId,
-  createCategoryId
+  createCategoryId,
+  createUserId
 } from '@/domain/value-objects/Identifiers';
 
 export interface CloudTransactionRow {
   id: string;
   user_id: string;
   type: 'income' | 'expense' | 'transfer';
-  amount_in_paise: number;
+  amount_paise?: number;
+  amount_in_paise?: number;
+  currency?: string;
   account_id: string;
-  target_account_id: string | null;
+  destination_account_id?: string | null;
+  target_account_id?: string | null;
   category_id: string | null;
-  date: string;
-  description: string;
-  notes: string | null;
-  status: 'cleared' | 'pending' | 'reconciled';
-  idempotency_key: string;
+  title?: string;
+  description?: string;
+  note?: string | null;
+  notes?: string | null;
+  transaction_date?: string;
+  date?: string;
+  deleted_at?: string | null;
+  is_deleted?: boolean;
   version: number;
-  is_deleted: boolean;
+  device_id?: string | null;
+  idempotency_key: string;
   created_at: string;
   updated_at: string;
 }
 
 export class TransactionMapper {
   public static toDomain(row: CloudTransactionRow): Transaction {
+    const amountPaise = row.amount_paise ?? row.amount_in_paise ?? 0;
+    const resolvedTitle = row.title || row.description || 'Transaction';
+    const destinationId = row.destination_account_id || row.target_account_id;
+    const resolvedDate = new Date(row.transaction_date || row.date || new Date().toISOString());
+    const resolvedDeletedAt = row.deleted_at
+      ? new Date(row.deleted_at)
+      : row.is_deleted
+        ? new Date()
+        : null;
+
     return new Transaction({
       id: createTransactionId(row.id),
-      type: row.type,
-      amount: Money.fromPaise(row.amount_in_paise),
+      userId: createUserId(row.user_id),
+      type: row.type as TransactionType,
+      amountPaise,
+      currency: row.currency || 'INR',
       accountId: createAccountId(row.account_id),
-      targetAccountId: row.target_account_id ? createAccountId(row.target_account_id) : undefined,
+      destinationAccountId: destinationId ? createAccountId(destinationId) : undefined,
       categoryId: row.category_id ? createCategoryId(row.category_id) : undefined,
-      date: new Date(row.date),
-      description: row.description,
-      notes: row.notes ?? undefined,
-      status: row.status,
-      idempotencyKey: row.idempotency_key,
+      title: resolvedTitle,
+      note: (row.note ?? row.notes) ?? undefined,
+      transactionDate: resolvedDate,
+      deletedAt: resolvedDeletedAt,
       version: row.version,
-      isDeleted: row.is_deleted,
+      deviceId: row.device_id ?? undefined,
+      idempotencyKey: row.idempotency_key,
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at)
     });
   }
 
-  public static toCloud(entity: Transaction, userId: string): CloudTransactionRow {
+  public static toCloud(entity: Transaction): CloudTransactionRow {
     return {
       id: entity.id,
-      user_id: userId,
+      user_id: entity.userId,
       type: entity.type,
-      amount_in_paise: entity.amount.paise,
+      amount_paise: entity.amountPaise,
+      currency: entity.currency,
       account_id: entity.accountId,
-      target_account_id: entity.targetAccountId ?? null,
+      destination_account_id: entity.destinationAccountId ?? null,
       category_id: entity.categoryId ?? null,
-      date: entity.date.toISOString(),
-      description: entity.description,
-      notes: entity.notes ?? null,
-      status: entity.status,
-      idempotency_key: entity.idempotencyKey,
+      title: entity.title,
+      note: entity.note ?? null,
+      transaction_date: entity.transactionDate.toISOString(),
+      deleted_at: entity.deletedAt ? entity.deletedAt.toISOString() : null,
       version: entity.version,
-      is_deleted: entity.isDeleted,
+      device_id: entity.deviceId ?? null,
+      idempotency_key: entity.idempotencyKey,
       created_at: entity.createdAt.toISOString(),
-      updated_at: entity.updatedAt.toISOString()
+      updated_at: entity.updatedAt.toISOString(),
+
+      // Compatibility fields
+      target_account_id: entity.destinationAccountId ?? null,
+      description: entity.title,
+      notes: entity.note ?? null,
+      date: entity.transactionDate.toISOString(),
+      amount_in_paise: entity.amountPaise,
+      is_deleted: entity.isDeleted
     };
   }
 }

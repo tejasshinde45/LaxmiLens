@@ -1,42 +1,71 @@
 export interface CreateTransactionDTO {
+  userId?: string;
   type: 'income' | 'expense' | 'transfer';
-  amountInPaise: number;
+  amountPaise?: number;
+  currency?: string;
   accountId: string;
-  targetAccountId?: string;
+  destinationAccountId?: string;
   categoryId?: string;
-  date: string; // ISO 8601 string
-  description: string;
-  notes?: string;
-  status?: 'cleared' | 'pending' | 'reconciled';
+  title?: string;
+  note?: string;
+  transactionDate?: string; // ISO 8601 string
+  deviceId?: string;
   idempotencyKey?: string;
+
+  // Compatibility fields
+  amountInPaise?: number;
+  targetAccountId?: string;
+  description?: string;
+  notes?: string;
+  date?: string;
+  status?: 'cleared' | 'pending' | 'reconciled';
 }
 
 export interface UpdateTransactionDTO {
   id: string;
-  amountInPaise?: number;
+  amountPaise?: number;
   accountId?: string;
-  targetAccountId?: string;
+  destinationAccountId?: string;
   categoryId?: string;
-  date?: string;
+  title?: string;
+  note?: string;
+  transactionDate?: string;
+
+  // Compatibility fields
+  amountInPaise?: number;
+  targetAccountId?: string;
   description?: string;
   notes?: string;
+  date?: string;
   status?: 'cleared' | 'pending' | 'reconciled';
 }
 
 export interface TransactionResponseDTO {
   id: string;
+  userId: string;
   type: 'income' | 'expense' | 'transfer';
-  amountInPaise: number;
+  amountPaise: number;
   amountFormatted: string;
+  currency: string;
   accountId: string;
-  targetAccountId?: string;
+  destinationAccountId?: string;
   categoryId?: string;
-  date: string;
-  description: string;
-  notes?: string;
-  status: string;
-  idempotencyKey: string;
+  title: string;
+  note?: string;
+  transactionDate: string;
+  deletedAt: string | null;
+  isDeleted: boolean;
   version: number;
+  deviceId?: string;
+  idempotencyKey: string;
   createdAt: string;
   updatedAt: string;
+
+  // Compatibility fields
+  amountInPaise: number;
+  targetAccountId?: string;
+  description: string;
+  notes?: string;
+  date: string;
+  status: string;
 }

@@ -18,6 +18,7 @@ export class GetAccountBalanceUseCase {
       throw new AccountNotFoundError(accountIdStr);
     }
 
+    // Retrieve ledger transactions for this account (soft-deleted are handled by LedgerRules)
     const transactions = await this.transactionRepo.findByAccount(accountId);
     const currentBalance = LedgerRules.calculateAccountBalance(
       account.openingBalance,
@@ -28,12 +29,17 @@ export class GetAccountBalanceUseCase {
     return {
       accountId: account.id,
       accountName: account.name,
-      accountType: account.type,
+      accountType: account.accountType,
       currency: account.currency,
-      openingBalanceInPaise: account.openingBalance.paise,
-      currentBalanceInPaise: currentBalance.paise,
+      openingBalancePaise: account.openingBalancePaise,
+      currentBalancePaise: currentBalance.paise,
       currentBalanceFormatted: currentBalance.format(),
-      isCreditCard: account.isCreditCard()
+      isCreditCard: account.isCreditCard(),
+      isArchived: account.isArchived,
+
+      // Compatibility fields
+      openingBalanceInPaise: account.openingBalancePaise,
+      currentBalanceInPaise: currentBalance.paise
     };
   }
 }

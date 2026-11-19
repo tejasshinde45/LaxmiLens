@@ -1,3 +1,4 @@
+export * from './entities/Profile';
 export * from './entities/Account';
 export * from './entities/Transaction';
 export * from './entities/Category';

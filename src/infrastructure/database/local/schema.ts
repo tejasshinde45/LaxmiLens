@@ -1,46 +1,78 @@
-export interface LocalAccountRecord {
-  id: string;
-  name: string;
-  type: 'cash' | 'bank' | 'upi' | 'wallet' | 'credit_card';
+export interface LocalProfileRecord {
+  id: string; // matches auth.users.id
+  email: string;
+  displayName?: string;
   currency: string;
-  openingBalanceInPaise: number;
-  status: 'active' | 'archived';
-  color?: string;
-  icon?: string;
-  version: number;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface LocalTransactionRecord {
-  id: string;
-  type: 'income' | 'expense' | 'transfer';
-  amountInPaise: number;
-  accountId: string;
-  targetAccountId?: string;
-  categoryId?: string;
-  date: string;
-  description: string;
-  notes?: string;
-  status: 'cleared' | 'pending' | 'reconciled';
-  idempotencyKey: string;
+export interface LocalAccountRecord {
+  id: string; // UUID
+  userId: string;
+  name: string;
+  accountType: 'cash' | 'bank' | 'savings' | 'credit_card' | 'wallet' | 'other';
+  openingBalancePaise: number;
+  currency: string;
+  institutionName?: string;
+  color?: string;
+  icon?: string;
+  isArchived: boolean;
   version: number;
-  isDeleted: boolean;
   createdAt: string;
   updatedAt: string;
+
+  // Compatibility fields
+  type?: string;
+  openingBalanceInPaise?: number;
+  status?: 'active' | 'archived';
 }
 
 export interface LocalCategoryRecord {
-  id: string;
+  id: string; // UUID
+  userId: string;
   name: string;
   type: 'income' | 'expense';
-  parentId?: string;
   icon?: string;
   color?: string;
-  isSystem: boolean;
+  isDefault: boolean;
+  isArchived: boolean;
   version: number;
   createdAt: string;
   updatedAt: string;
+
+  // Compatibility fields
+  parentId?: string;
+  isSystem?: boolean;
+}
+
+export interface LocalTransactionRecord {
+  id: string; // UUID
+  userId: string;
+  type: 'income' | 'expense' | 'transfer';
+  amountPaise: number;
+  currency: string;
+  accountId: string;
+  destinationAccountId?: string;
+  categoryId?: string;
+  title: string;
+  note?: string;
+  transactionDate: string; // ISO 8601 string
+  deletedAt: string | null; // ISO 8601 or null
+  version: number;
+  deviceId?: string;
+  idempotencyKey: string;
+  createdAt: string;
+  updatedAt: string;
+
+  // Compatibility fields
+  targetAccountId?: string;
+  description?: string;
+  notes?: string;
+  date?: string;
+  amountInPaise?: number;
+  isDeleted?: boolean;
+  status?: 'cleared' | 'pending' | 'reconciled';
 }
 
 export interface LocalBudgetRecord {
@@ -76,7 +108,7 @@ export interface LocalRecurringRuleRecord {
 
 export interface LocalOutboxRecord {
   id?: number;
-  entity: 'accounts' | 'transactions' | 'categories' | 'budgets' | 'recurring_rules';
+  entity: 'profiles' | 'accounts' | 'transactions' | 'categories' | 'budgets' | 'recurring_rules';
   entityId: string;
   operation: 'INSERT' | 'UPDATE' | 'DELETE';
   payload: Record<string, unknown>;

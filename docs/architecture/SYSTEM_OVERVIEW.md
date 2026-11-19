@@ -2,7 +2,7 @@
 
 ## 1. High-Level System Architecture
 
-LaxmiLens is architected as an offline-first, client-centric Progressive Web Application. The application is designed to operate seamlessly whether the user is offline, on a spotty cellular connection, or connected to high-speed broadband.
+LaxmiLens is architected as an offline-first, client-centric Progressive Web Application (PWA). The application is designed to operate seamlessly whether the user is offline, on a spotty cellular connection, or connected to high-speed broadband.
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
@@ -16,8 +16,10 @@ LaxmiLens is architected as an offline-first, client-centric Progressive Web App
 ┌────────────────────────────────────────────────────────────────────────┐
 │                         APPLICATION LAYER                              │
 │                                                                        │
-│   RecordTransactionUseCase  │  ExecuteTransferUseCase                  │
-│   GetAccountBalanceUseCase  │  CheckBudgetUseCase                      │
+│   Accounts: CreateAccount, UpdateAccount, ArchiveAccount, GetBalance   │
+│   Categories: CreateCategory                                           │
+│   Transactions: CreateTransaction, UpdateTransaction, DeleteTransaction│
+│                 GetTransactions, ExecuteTransfer, RecordTransaction    │
 │   Ports: SyncPort, StoragePort, LoggerPort, AuthPort                   │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │ Coordinates Core Models
@@ -26,16 +28,17 @@ LaxmiLens is architected as an offline-first, client-centric Progressive Web App
 │                            DOMAIN LAYER                                │
 │                                                                        │
 │   Money (Integer Paise)     │  LedgerRules (Derived Balances)          │
-│   Account, Transaction, Category, Budget, RecurringRule Entities       │
-│   Repository Contracts: TransactionRepository, AccountRepository...    │
+│   Entities: Profile, Account, Category, Transaction                    │
+│   Domain Errors: CategoryTypeMismatch, InvalidAmount, MissingAccount   │
+│   Repository Contracts: ProfileRepo, AccountRepo, CategoryRepo, TxRepo │
 └───────────────────────────────────▲────────────────────────────────────┘
                                     │ Implements Contracts
                                     │
 ┌───────────────────────────────────┴────────────────────────────────────┐
 │                       INFRASTRUCTURE LAYER                             │
 │                                                                        │
-│   Dexie (IndexedDB)             │   Transactional Outbox               │
-│   Local Repositories            │   Background SyncEngine              │
+│   Dexie v2 (IndexedDB)          │   Transactional Outbox               │
+│   Dexie Repositories (CRUD)     │   Background SyncEngine              │
 │   Supabase Client (Cloud)       │   Console / Structured Logger        │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │ HTTPS / WSS
@@ -44,6 +47,7 @@ LaxmiLens is architected as an offline-first, client-centric Progressive Web App
 │                         SUPABASE CLOUD                                 │
 │                                                                        │
 │   PostgreSQL (BIGINT Paise)     │   Row Level Security (RLS)           │
+│   Cross-Tenant Trigger Checks   │   Atomic Transfer RPC Function       │
 │   Auth (Email & Google OAuth)   │   Cloud Source of Truth              │
 └────────────────────────────────────────────────────────────────────────┘
 ```
@@ -53,33 +57,36 @@ LaxmiLens is architected as an offline-first, client-centric Progressive Web App
 ## 2. Layer Responsibilities & Isolation Rules
 
 ### Presentation Layer (`src/app/`, `src/features/`, `src/components/`)
-- Renders UI views and responds to user gestures.
-- Uses TanStack Query hooks to observe local view-models.
-- **Strict Rule**: UI components must never perform direct IndexedDB or Supabase SQL queries. All write operations invoke application use cases.
+- Renders responsive UI views conforming to the Obsidian Gold design tokens.
+- Uses TanStack Query hooks strictly for UI cache observation, not as persistent storage.
+- **Strict Invariant**: UI components must never perform direct IndexedDB queries or Supabase SQL queries. All write operations invoke Application Use Cases.
 
 ### Application Layer (`src/application/`)
-- Encapsulates discrete user actions as use cases.
-- Transforms raw input DTOs into domain value objects and entities.
-- Interacts with abstract repository interfaces and ports (`SyncPort`, `StoragePort`, `LoggerPort`).
-- Agnostic to whether persistence happens in IndexedDB, SQLite, or a cloud API.
+- Encapsulates user actions into single-responsibility Use Cases:
+  - `CreateAccountUseCase`, `UpdateAccountUseCase`, `ArchiveAccountUseCase`, `GetAccountBalanceUseCase`.
+  - `CreateCategoryUseCase`.
+  - `CreateTransactionUseCase`, `UpdateTransactionUseCase`, `DeleteTransactionUseCase`, `GetTransactionsUseCase`, `ExecuteTransferUseCase`.
+- Orchestrates input validation, domain rule execution, and repository persistence.
+- Decoupled from persistent store mechanics; communicates via domain repository contracts.
 
 ### Domain Layer (`src/domain/`)
-- Pure business logic and financial invariants.
-- Contains the `Money` value object which enforces integer paise arithmetic and protects against floating-point inaccuracies.
-- Contains `LedgerRules` which define derived account balance computation and double-entry atomic transfer rules.
-- **Strict Rule**: Zero dependencies on UI frameworks, HTTP clients, or persistence libraries.
+- Pure business logic, financial models, and invariants:
+  - `Money`: Immutable value object enforcing integer paise arithmetic and zero floating-point drift.
+  - `LedgerRules`: Pure domain functions computing derived balances ($\text{Opening} + \text{Income} - \text{Expenses} - \text{Transfers Out} + \text{Transfers In}$), cash flow totals, and net worth.
+  - Entities: `Profile`, `Account`, `Category`, `Transaction` with domain invariants.
+  - Domain Errors: `InvalidTransactionAmountError`, `CategoryTypeMismatchError`, `MissingAccountError`, `SelfTransferError`, `UnauthorizedEntityAccessError`.
+- **Strict Invariant**: Zero imports from React, Dexie, Supabase, or browser APIs.
 
 ### Infrastructure Layer (`src/infrastructure/`)
-- Implements the persistence contracts using Dexie for IndexedDB.
-- Implements `SyncPort` using the `OutboxManager`.
-- Manages the `SyncEngine` for cloud replication against Supabase PostgreSQL.
-- Implements authentication via `SupabaseAuthAdapter`.
+- Implements domain repository interfaces (`DexieAccountRepository`, `DexieCategoryRepository`, `DexieTransactionRepository`, `DexieProfileRepository`).
+- Manages Dexie schema upgrades (Version 1 $\rightarrow$ Version 2) non-destructively.
+- Encapsulates cloud client access, remote mappers, and outbox synchronization.
 
 ---
 
-## 3. Technology Rationale
+## 3. Financial Data Integrity Principles
 
-1. **Dexie (IndexedDB)**: Direct browser database access with high read/write performance and complete offline availability.
-2. **Supabase PostgreSQL**: Industrial-grade relational database providing ACID transactions, strict schema constraints, and Row Level Security.
-3. **Tailwind CSS v4**: High performance styling without bundle bloat, enabling strict design token mapping for Obsidian Gold.
-4. **Zod**: Runtime validation at the application boundary for environment variables, DTOs, and sync payloads.
+1. **Integer Paise Precision**: All currency quantities are stored as integer paise (`BIGINT` in database, integer `number` in JS). ₹1,250.75 is represented as `125075`.
+2. **Derived Ledger Balances**: Account balances are derived from opening balances and ledger transactions. They are never independently edited.
+3. **Soft-Deletion**: Transactions are soft-deleted via `deletedAt` timestamps. Soft-deleted transactions are excluded from active ledger balance calculations.
+4. **Tenant Isolation**: Every database row references `user_id`. Supabase RLS enforces `auth.uid() = user_id`. PostgreSQL trigger `validate_transaction_ownership` validates that account, destination account, and category all belong to the user.

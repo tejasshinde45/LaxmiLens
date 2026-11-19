@@ -1,7 +1,14 @@
 import { TransactionRepository, TransactionFilter } from '@/domain/repositories/TransactionRepository';
-import { Transaction } from '@/domain/entities/Transaction';
-import { TransactionId, AccountId, createTransactionId, createAccountId, createCategoryId } from '@/domain/value-objects/Identifiers';
-import { Money } from '@/domain/value-objects/Money';
+import { Transaction, TransactionType } from '@/domain/entities/Transaction';
+import {
+  TransactionId,
+  AccountId,
+  UserId,
+  createTransactionId,
+  createAccountId,
+  createCategoryId,
+  createUserId
+} from '@/domain/value-objects/Identifiers';
 import { db, LaxmiLensDB } from '../DexieDatabase';
 import { LocalTransactionRecord } from '../schema';
 
@@ -13,8 +20,14 @@ export class DexieTransactionRepository implements TransactionRepository {
     return record ? this.toDomain(record) : null;
   }
 
-  public async findByIdempotencyKey(key: string): Promise<Transaction | null> {
-    const record = await this.database.transactions.where('idempotencyKey').equals(key).first();
+  public async findByIdempotencyKey(key: string, userId?: UserId): Promise<Transaction | null> {
+    let collection = this.database.transactions.where('idempotencyKey').equals(key);
+    if (userId) {
+      const records = await collection.toArray();
+      const matched = records.find((r) => r.userId === userId);
+      return matched ? this.toDomain(matched) : null;
+    }
+    const record = await collection.first();
     return record ? this.toDomain(record) : null;
   }
 
@@ -22,7 +35,7 @@ export class DexieTransactionRepository implements TransactionRepository {
     const records = await this.database.transactions
       .where('accountId')
       .equals(accountId)
-      .or('targetAccountId')
+      .or('destinationAccountId')
       .equals(accountId)
       .toArray();
 
@@ -30,13 +43,29 @@ export class DexieTransactionRepository implements TransactionRepository {
   }
 
   public async findMany(filter: TransactionFilter): Promise<Transaction[]> {
-    let collection = this.database.transactions.toCollection();
+    let records: LocalTransactionRecord[];
 
     if (filter.accountId) {
-      collection = this.database.transactions.where('accountId').equals(filter.accountId);
+      records = await this.database.transactions
+        .where('accountId')
+        .equals(filter.accountId)
+        .or('destinationAccountId')
+        .equals(filter.accountId)
+        .toArray();
+    } else if (filter.userId) {
+      records = await this.database.transactions.where('userId').equals(filter.userId).toArray();
+    } else {
+      records = await this.database.transactions.toArray();
     }
 
-    let records = await collection.toArray();
+    // Exclude soft-deleted transactions by default unless explicitly included
+    if (!filter.includeDeleted) {
+      records = records.filter((r) => !r.deletedAt && !r.isDeleted);
+    }
+
+    if (filter.userId && filter.accountId) {
+      records = records.filter((r) => r.userId === filter.userId);
+    }
 
     if (filter.categoryId) {
       records = records.filter((r) => r.categoryId === filter.categoryId);
@@ -44,24 +73,30 @@ export class DexieTransactionRepository implements TransactionRepository {
 
     if (filter.dateRange) {
       records = records.filter((r) => {
-        const txDate = new Date(r.date);
+        const txDate = new Date(r.transactionDate || r.date || '');
         return filter.dateRange!.contains(txDate);
       });
     }
 
     if (filter.types && filter.types.length > 0) {
-      records = records.filter((r) => filter.types!.includes(r.type));
+      records = records.filter((r) => filter.types!.includes(r.type as TransactionType));
     }
 
     if (filter.searchQuery) {
       const q = filter.searchQuery.toLowerCase();
-      records = records.filter(
-        (r) => r.description.toLowerCase().includes(q) || (r.notes && r.notes.toLowerCase().includes(q))
-      );
+      records = records.filter((r) => {
+        const titleMatch = (r.title || r.description || '').toLowerCase().includes(q);
+        const noteMatch = (r.note || r.notes || '').toLowerCase().includes(q);
+        return titleMatch || noteMatch;
+      });
     }
 
-    // Sort descending by date
-    records.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    // Sort descending by transactionDate
+    records.sort((a, b) => {
+      const dateA = new Date(a.transactionDate || a.date || '').getTime();
+      const dateB = new Date(b.transactionDate || b.date || '').getTime();
+      return dateB - dateA;
+    });
 
     if (filter.offset !== undefined) {
       records = records.slice(filter.offset);
@@ -83,28 +118,36 @@ export class DexieTransactionRepository implements TransactionRepository {
     await this.database.transactions.bulkPut(records);
   }
 
-  public async softDelete(id: TransactionId): Promise<void> {
+  public async softDelete(id: TransactionId, deletedAt: Date = new Date()): Promise<void> {
     await this.database.transactions.update(id, {
+      deletedAt: deletedAt.toISOString(),
       isDeleted: true,
       updatedAt: new Date().toISOString()
     });
   }
 
   private toDomain(record: LocalTransactionRecord): Transaction {
+    const resolvedTitle = record.title || record.description || 'Transaction';
+    const resolvedDate = new Date(record.transactionDate || record.date || new Date().toISOString());
+    const resolvedDestination = record.destinationAccountId || record.targetAccountId;
+    const resolvedDeletedAt = record.deletedAt ? new Date(record.deletedAt) : (record.isDeleted ? new Date() : null);
+
     return new Transaction({
       id: createTransactionId(record.id),
-      type: record.type,
-      amount: Money.fromPaise(record.amountInPaise),
+      userId: createUserId(record.userId || 'local-user'),
+      type: record.type as TransactionType,
+      amountPaise: record.amountPaise ?? record.amountInPaise ?? 0,
+      currency: record.currency || 'INR',
       accountId: createAccountId(record.accountId),
-      targetAccountId: record.targetAccountId ? createAccountId(record.targetAccountId) : undefined,
+      destinationAccountId: resolvedDestination ? createAccountId(resolvedDestination) : undefined,
       categoryId: record.categoryId ? createCategoryId(record.categoryId) : undefined,
-      date: new Date(record.date),
-      description: record.description,
-      notes: record.notes,
-      status: record.status,
+      title: resolvedTitle,
+      note: record.note ?? record.notes,
+      transactionDate: resolvedDate,
+      deletedAt: resolvedDeletedAt,
+      version: record.version ?? 1,
+      deviceId: record.deviceId,
       idempotencyKey: record.idempotencyKey,
-      version: record.version,
-      isDeleted: record.isDeleted,
       createdAt: new Date(record.createdAt),
       updatedAt: new Date(record.updatedAt)
     });
@@ -113,20 +156,31 @@ export class DexieTransactionRepository implements TransactionRepository {
   private toRecord(transaction: Transaction): LocalTransactionRecord {
     return {
       id: transaction.id,
+      userId: transaction.userId,
       type: transaction.type,
-      amountInPaise: transaction.amount.paise,
+      amountPaise: transaction.amountPaise,
+      currency: transaction.currency,
       accountId: transaction.accountId,
-      targetAccountId: transaction.targetAccountId,
+      destinationAccountId: transaction.destinationAccountId,
       categoryId: transaction.categoryId,
-      date: transaction.date.toISOString(),
-      description: transaction.description,
-      notes: transaction.notes,
-      status: transaction.status,
-      idempotencyKey: transaction.idempotencyKey,
+      title: transaction.title,
+      note: transaction.note,
+      transactionDate: transaction.transactionDate.toISOString(),
+      deletedAt: transaction.deletedAt ? transaction.deletedAt.toISOString() : null,
       version: transaction.version,
-      isDeleted: transaction.isDeleted,
+      deviceId: transaction.deviceId,
+      idempotencyKey: transaction.idempotencyKey,
       createdAt: transaction.createdAt.toISOString(),
-      updatedAt: transaction.updatedAt.toISOString()
+      updatedAt: transaction.updatedAt.toISOString(),
+
+      // Compatibility fields
+      targetAccountId: transaction.destinationAccountId,
+      description: transaction.title,
+      notes: transaction.note,
+      date: transaction.transactionDate.toISOString(),
+      amountInPaise: transaction.amountPaise,
+      isDeleted: transaction.isDeleted,
+      status: transaction.status
     };
   }
 }

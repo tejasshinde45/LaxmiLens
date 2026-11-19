@@ -1,82 +1,113 @@
 # Data Flow Architecture: LaxmiLens
 
-## 1. Primary Write Path: Local-First Mutation
+## 1. Primary Write Path: Manual Transaction Creation Flow
 
-Every financial mutation follows a strictly ordered write path to ensure offline reliability and instant UI feedback.
+Every manual transaction entry follows a clean, decoupled path from UI input to local persistence:
 
 ```
-[ User Submits Form ]
-        │
-        ▼
-[ Presentation Hook ] ─── (Calls Use Case)
-        │
-        ▼
-[ Application Use Case ]
-        │ 1. Validate DTO & Invariants
-        │ 2. Create Domain Entities (e.g. Transaction, Money)
-        │ 3. Generate Idempotency Key (UUIDv4)
-        │
-        ├──────────────────────────────────────┐
-        ▼ (Step A: Local Write)                ▼ (Step B: Enqueue Outbox)
-[ DexieTransactionRepository ]        [ OutboxManager ]
-        │                                      │
-        ▼                                      ▼
-[ IndexedDB 'transactions' ]          [ IndexedDB 'syncOutbox' ]
-        │                                      │
-        └──────────────────┬───────────────────┘
-                           │ (Atomic Local Commit)
-                           ▼
-                 [ Return Success to UI ]
-                           │
-                           ▼
-                 [ Background Sync Trigger ]
+[ User Action: Enter Transaction Form ]
+                    │
+                    ▼
+[ Presentation Component / Hook ]
+                    │ (Submits TransactionDTO)
+                    ▼
+[ CreateTransactionUseCase ]
+    │
+    ├── 1. Validate Account Existence & Ownership (AccountRepository.findById)
+    ├── 2. Validate Category Type & Ownership if assigned (CategoryRepository.findById)
+    ├── 3. Construct Money Value Object (from integer paise or rupee conversion)
+    ├── 4. Generate Idempotency Key (UUIDv4)
+    ├── 5. Instantiate Domain Transaction Entity
+    │       (Enforces invariants: amount > 0, accountId present, valid dates)
+    │
+    ├────────────────────────────────────────┬────────────────────────────────────────┐
+    ▼ (Primary Step: Save to Ledger)         ▼ (Secondary Step: Stage Sync Outbox)    │
+[ DexieTransactionRepository.save() ]    [ OutboxManager.enqueue() ]                  │
+    │                                        │                                        │
+    ▼                                        ▼                                        │
+[ Dexie DB: 'transactions' Table ]       [ Dexie DB: 'syncOutbox' Table ]             │
+    │                                        │                                        │
+    └───────────────────┬────────────────────┘                                        │
+                        │                                                             │
+                        ▼ (Immediate Local Commit)                                    │
+              [ Return Success to UI ]                                                │
+                        │                                                             │
+                        ▼                                                             │
+              [ Invalidate TanStack Query Cache ]                                     │
+                        │                                                             │
+                        ▼                                                             ▼
+              [ Reactive UI Re-render ]                              [ Background Sync Trigger ]
 ```
-
-### Steps Explained:
-1. **User Submits Action**: e.g., user inputs a transaction of ₹500 for Groceries.
-2. **Use Case Execution**: `RecordTransactionUseCase` creates a `Money.fromPaise(50000)` instance and assigns a unique `idempotencyKey`.
-3. **Local Write**: The transaction record is written to Dexie's `transactions` table.
-4. **Outbox Enqueue**: In the same operation, an entry is written into Dexie's `syncOutbox` table with `status = 'pending'`, `attempts = 0`, and the serialized payload.
-5. **Immediate UI Resolution**: The UI updates optimistically with 0ms network latency.
-6. **Background Sync**: `SyncEngine` is notified to flush the outbox if the device is online.
 
 ---
 
-## 2. Ledger Calculation & Derived Balances
+## 2. Inter-Account Transfer Flow (`ExecuteTransferUseCase`)
 
-Account balances are **derived values**, not mutable database fields.
+Transfers between two accounts owned by the same user are recorded atomically:
 
 ```
-                      [ Opening Balance ] (from Account entity)
+[ User Inputs: Source Account A, Target Account B, Amount ₹1,000 ]
                                │
                                ▼
-                   [ Retrieve Ledger Entries ]
-               (All non-deleted transactions for account)
+                   [ ExecuteTransferUseCase ]
                                │
-        ┌──────────────────────┼──────────────────────┐
-        │                      │                      │
-        ▼                      ▼                      ▼
-[ + Income Amounts ]   [ - Expense Amounts ]  [ Transfers (+/-) ]
-        │                      │                      │
-        └──────────────────────┼──────────────────────┘
+            ┌──────────────────┴──────────────────┐
+            ▼                                     ▼
+[ Account A Exists & Belongs to User ]   [ Account B Exists & Belongs to User ]
+            │                                     │
+            └──────────────────┬──────────────────┘
                                │
-                               ▼
-                   [ Current Derived Balance ]
+            [ Validate Source != Destination ]
+                               │
+            [ Create Domain Transaction Entity ]
+            (type = 'transfer', accountId = A, destinationAccountId = B)
+                               │
+            [ DexieTransactionRepository.save() ]
+            (Stores atomic transfer record in IndexedDB)
+                               │
+            [ Enqueue Outbox for Remote Sync ]
+            (Triggers Supabase RPC record_transfer_atomic when online)
 ```
-
-- When the application needs to display an account balance, `GetAccountBalanceUseCase` executes `LedgerRules.calculateAccountBalance()`.
-- This ensures absolute consistency: if an historical transaction is edited, all subsequent balances recalculate cleanly without manual reconciliation overhead.
-- Cached summary records may be maintained for performance in future milestones, but the verified ledger remains the single local source of truth.
 
 ---
 
-## 3. Cloud Read & Remote Hydration Flow
+## 3. Derived Balance & Ledger Calculation Flow
 
-When an authenticated user connects on a new device or pulls remote updates:
+Account balances are **derived mathematically** from the immutable transaction ledger, rather than read from a mutable balance column:
 
-1. `SyncEngine` queries Supabase PostgreSQL for records where `updated_at > last_synced_at`.
-2. Remote records are validated via `TransactionMapper` into domain entities.
-3. Records are merged into Dexie tables using version checks:
-   - If `remote.version > local.version`: Remote update overwrites local record.
-   - If `local` has pending outbox entries for the same ID: A conflict is flagged in `syncMetadata` for resolution.
-4. UI queries observe the local database and re-render reactively.
+```
+[ UI Component: Account Card / Balance Display ]
+                        │
+                        ▼
+            [ GetAccountBalanceUseCase ]
+                        │
+                        ├─────────────────────────────────────────────────┐
+                        ▼                                                 ▼
+        [ AccountRepository.findById() ]            [ TransactionRepository.findByAccountId() ]
+                        │                                                 │
+            (Retrieves Account entity)                    (Fetches all non-deleted transactions)
+                        │                                                 │
+                        └───────────────────────┬─────────────────────────┘
+                                                │
+                                                ▼
+                                    [ LedgerRules.calculateAccountBalance ]
+                                                │
+            ┌───────────────────────────────────┼───────────────────────────────────┐
+            ▼                                   ▼                                   ▼
+[ Inflows (+): Income txs &          [ Outflows (-): Expense txs &        [ Baseline (+): Opening balance ]
+  Transfers where account is          Transfers where account is          (Paise from Account record)
+  destinationAccountId ]              accountId ]                                   │
+            │                                   │                                   │
+            └───────────────────────────────────┼───────────────────────────────────┘
+                                                │
+                                                ▼
+                                    [ Final Derived Balance (Money) ]
+                                                │
+                                                ▼
+                                    [ Formatted Rupee Output (₹) ]
+```
+
+### Cash Flow Invariance:
+- Inter-account transfers **never** count toward monthly income or expenses in cash flow calculations (`LedgerRules.calculateTotals`).
+- Transfers only shift liquidity between accounts without changing overall net worth.
+- Soft-deleted transactions (`deletedAt !== null`) are strictly excluded from ledger calculations.

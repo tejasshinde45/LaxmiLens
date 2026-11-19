@@ -15,6 +15,12 @@ export class InvalidMoneyError extends DomainError {
   }
 }
 
+export class InvalidTransactionAmountError extends DomainError {
+  constructor(message = 'Transaction amount must be a strictly positive integer in paise.') {
+    super(message, 'INVALID_TRANSACTION_AMOUNT');
+  }
+}
+
 export class InsufficientFundsError extends DomainError {
   constructor(accountId: string, availablePaise: number, requestedPaise: number) {
     super(
@@ -30,6 +36,12 @@ export class AccountNotFoundError extends DomainError {
   }
 }
 
+export class MissingAccountError extends DomainError {
+  constructor(message = 'Transaction must reference a valid source account.') {
+    super(message, 'MISSING_ACCOUNT');
+  }
+}
+
 export class TransactionNotFoundError extends DomainError {
   constructor(transactionId: string) {
     super(`Transaction with ID '${transactionId}' was not found.`, 'TRANSACTION_NOT_FOUND');
@@ -42,15 +54,30 @@ export class CategoryNotFoundError extends DomainError {
   }
 }
 
+export class CategoryTypeMismatchError extends DomainError {
+  constructor(expectedType: 'income' | 'expense', actualType: 'income' | 'expense') {
+    super(
+      `Cannot use ${actualType} category for ${expectedType} transaction. Expected category type: ${expectedType}.`,
+      'CATEGORY_TYPE_MISMATCH'
+    );
+  }
+}
+
 export class TransferAccountMismatchError extends DomainError {
-  constructor() {
-    super('A transfer transaction must specify distinct source and destination accounts.', 'TRANSFER_ACCOUNT_MISMATCH');
+  constructor(message = 'A transfer transaction must specify distinct source and destination accounts.') {
+    super(message, 'TRANSFER_ACCOUNT_MISMATCH');
   }
 }
 
 export class DuplicateTransactionError extends DomainError {
   constructor(idempotencyKey: string) {
     super(`A transaction with idempotency key '${idempotencyKey}' already exists.`, 'DUPLICATE_TRANSACTION');
+  }
+}
+
+export class UnauthorizedEntityAccessError extends DomainError {
+  constructor(entityName: string, entityId: string) {
+    super(`User is not authorized to access or reference ${entityName} with ID '${entityId}'.`, 'UNAUTHORIZED_ENTITY_ACCESS');
   }
 }
 

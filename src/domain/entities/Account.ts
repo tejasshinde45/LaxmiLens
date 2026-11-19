@@ -1,57 +1,77 @@
-import { AccountId } from '../value-objects/Identifiers';
+import { AccountId, UserId } from '../value-objects/Identifiers';
 import { Money } from '../value-objects/Money';
 
-export type AccountType = 'cash' | 'bank' | 'upi' | 'wallet' | 'credit_card';
+export type AccountType = 'cash' | 'bank' | 'savings' | 'credit_card' | 'wallet' | 'other';
 
 export type AccountStatus = 'active' | 'archived';
 
 export interface AccountProps {
   id: AccountId;
+  userId: UserId;
   name: string;
-  type: AccountType;
-  currency: string;
-  openingBalance: Money;
-  status: AccountStatus;
+  accountType: AccountType;
+  openingBalancePaise: number;
+  currency?: string;
+  institutionName?: string;
   color?: string;
   icon?: string;
-  version: number;
-  createdAt: Date;
-  updatedAt: Date;
+  isArchived?: boolean;
+  version?: number;
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 export class Account {
   public readonly id: AccountId;
+  public readonly userId: UserId;
   public readonly name: string;
-  public readonly type: AccountType;
+  public readonly accountType: AccountType;
+  public readonly openingBalancePaise: number;
   public readonly currency: string;
-  public readonly openingBalance: Money;
-  public readonly status: AccountStatus;
+  public readonly institutionName?: string;
   public readonly color?: string;
   public readonly icon?: string;
+  public readonly isArchived: boolean;
   public readonly version: number;
   public readonly createdAt: Date;
   public readonly updatedAt: Date;
 
   constructor(props: AccountProps) {
+    if (!props.name || props.name.trim().length === 0) {
+      throw new Error('Account name must not be empty.');
+    }
+
+    const now = new Date();
     this.id = props.id;
-    this.name = props.name;
-    this.type = props.type;
-    this.currency = props.currency;
-    this.openingBalance = props.openingBalance;
-    this.status = props.status;
+    this.userId = props.userId;
+    this.name = props.name.trim();
+    this.accountType = props.accountType;
+    this.openingBalancePaise = props.openingBalancePaise;
+    this.currency = props.currency ?? 'INR';
+    this.institutionName = props.institutionName?.trim();
     this.color = props.color;
     this.icon = props.icon;
-    this.version = props.version;
-    this.createdAt = props.createdAt;
-    this.updatedAt = props.updatedAt;
+    this.isArchived = props.isArchived ?? false;
+    this.version = props.version ?? 1;
+    this.createdAt = props.createdAt ?? now;
+    this.updatedAt = props.updatedAt ?? now;
     Object.freeze(this);
   }
 
-  public isArchived(): boolean {
-    return this.status === 'archived';
+  // Getters for financial calculation and compatibility
+  public get openingBalance(): Money {
+    return Money.fromPaise(this.openingBalancePaise, this.currency);
+  }
+
+  public get type(): AccountType {
+    return this.accountType;
+  }
+
+  public get status(): AccountStatus {
+    return this.isArchived ? 'archived' : 'active';
   }
 
   public isCreditCard(): boolean {
-    return this.type === 'credit_card';
+    return this.accountType === 'credit_card';
   }
 }

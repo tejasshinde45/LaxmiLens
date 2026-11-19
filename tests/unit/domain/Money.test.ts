@@ -10,6 +10,13 @@ describe('Money Value Object', () => {
     expect(money.currency).toBe('INR');
   });
 
+  it('correctly converts decimal rupee values into exact paise (e.g. ₹1,250.75 = 125075 paise)', () => {
+    const money = Money.fromRupees(1250.75);
+    expect(money.paise).toBe(125075);
+    expect(money.rupees).toBe(1250.75);
+    expect(money.format()).toBe('₹1,250.75');
+  });
+
   it('correctly converts rupees to integer paise without floating-point errors', () => {
     // 0.1 + 0.2 in JS float = 0.30000000000000004
     const money = Money.fromRupees(0.1 + 0.2);
@@ -19,6 +26,8 @@ describe('Money Value Object', () => {
 
   it('rejects unsafe floating-point paise', () => {
     expect(() => Money.fromPaise(100.55)).toThrow(InvalidMoneyError);
+    expect(() => Money.fromPaise(NaN)).toThrow(InvalidMoneyError);
+    expect(() => Money.fromPaise(Infinity)).toThrow(InvalidMoneyError);
   });
 
   it('performs exact addition and subtraction', () => {
@@ -32,6 +41,14 @@ describe('Money Value Object', () => {
     const diff = a.subtract(b);
     expect(diff.paise).toBe(5100);
     expect(diff.rupees).toBe(51.0);
+  });
+
+  it('correctly handles large monetary values (e.g. 10 Crore = ₹10,00,00,000)', () => {
+    // 10 Crore rupees = 10,000,000,000 paise (well within Number.MAX_SAFE_INTEGER 9e15)
+    const tenCrores = Money.fromRupees(100000000);
+    expect(tenCrores.paise).toBe(10000000000);
+    expect(tenCrores.rupees).toBe(100000000);
+    expect(tenCrores.format()).toBe('₹10,00,00,000.00');
   });
 
   it('distributes allocation without losing odd paise', () => {
@@ -54,5 +71,17 @@ describe('Money Value Object', () => {
 
     const negative = Money.fromPaise(-50000); // -₹500.00
     expect(negative.format()).toBe('-₹500.00');
+  });
+
+  it('supports comparisons correctly', () => {
+    const small = Money.fromRupees(50);
+    const big = Money.fromRupees(100);
+
+    expect(big.greaterThan(small)).toBe(true);
+    expect(small.lessThan(big)).toBe(true);
+    expect(small.equals(Money.fromPaise(5000))).toBe(true);
+    expect(Money.zero().isZero()).toBe(true);
+    expect(small.isPositive()).toBe(true);
+    expect(Money.fromPaise(-100).isNegative()).toBe(true);
   });
 });

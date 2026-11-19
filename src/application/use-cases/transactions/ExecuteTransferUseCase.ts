@@ -2,18 +2,22 @@ import { TransactionRepository } from '@/domain/repositories/TransactionReposito
 import { AccountRepository } from '@/domain/repositories/AccountRepository';
 import { SyncPort } from '@/application/ports/SyncPort';
 import { Transaction } from '@/domain/entities/Transaction';
-import { Money } from '@/domain/value-objects/Money';
-import { createTransactionId, createAccountId } from '@/domain/value-objects/Identifiers';
+import { createTransactionId, createAccountId, createUserId } from '@/domain/value-objects/Identifiers';
 import { AccountNotFoundError, TransferAccountMismatchError } from '@/domain/errors/DomainErrors';
 import { TransactionResponseDTO } from '@/application/dto/TransactionDTO';
 
 export interface ExecuteTransferRequest {
+  userId?: string;
   fromAccountId: string;
   toAccountId: string;
-  amountInPaise: number;
-  date: string;
-  description: string;
+  amountInPaise?: number;
+  amountPaise?: number;
+  date?: string;
+  transactionDate?: string;
+  description?: string;
+  title?: string;
   notes?: string;
+  note?: string;
   idempotencyKey?: string;
 }
 
@@ -35,23 +39,30 @@ export class ExecuteTransferUseCase {
     const toAccount = await this.accountRepo.findById(createAccountId(req.toAccountId));
     if (!toAccount) throw new AccountNotFoundError(req.toAccountId);
 
+    const amountPaise = req.amountPaise ?? req.amountInPaise ?? 0;
+    const resolvedTitle = (req.title || req.description || 'Account Transfer').trim();
+    const resolvedDate = new Date(req.transactionDate || req.date || new Date().toISOString());
+    const resolvedNote = req.note ?? req.notes;
+    const idempotencyKey = req.idempotencyKey || crypto.randomUUID();
+    const userId = createUserId(req.userId || fromAccount.userId);
     const now = new Date();
     const transactionId = createTransactionId(crypto.randomUUID());
-    const idempotencyKey = req.idempotencyKey || crypto.randomUUID();
 
     const transferTx = new Transaction({
       id: transactionId,
+      userId,
       type: 'transfer',
-      amount: Money.fromPaise(req.amountInPaise),
+      amountPaise,
+      currency: fromAccount.currency,
       accountId: fromAccount.id,
-      targetAccountId: toAccount.id,
-      date: new Date(req.date),
-      description: req.description,
-      notes: req.notes,
+      destinationAccountId: toAccount.id,
+      title: resolvedTitle,
+      note: resolvedNote,
+      transactionDate: resolvedDate,
+      deletedAt: null,
       status: 'cleared',
       idempotencyKey,
       version: 1,
-      isDeleted: false,
       createdAt: now,
       updatedAt: now
     });
@@ -66,13 +77,16 @@ export class ExecuteTransferUseCase {
       operation: 'INSERT',
       payload: {
         id: transferTx.id,
+        user_id: transferTx.userId,
         type: transferTx.type,
-        amountInPaise: transferTx.amount.paise,
-        accountId: transferTx.accountId,
-        targetAccountId: transferTx.targetAccountId,
-        date: transferTx.date.toISOString(),
-        description: transferTx.description,
-        status: transferTx.status,
+        amount_paise: transferTx.amountPaise,
+        currency: transferTx.currency,
+        account_id: transferTx.accountId,
+        destination_account_id: transferTx.destinationAccountId,
+        title: transferTx.title,
+        note: transferTx.note,
+        transaction_date: transferTx.transactionDate.toISOString(),
+        idempotency_key: transferTx.idempotencyKey,
         version: transferTx.version
       },
       idempotencyKey
@@ -80,19 +94,30 @@ export class ExecuteTransferUseCase {
 
     return {
       id: transferTx.id,
+      userId: transferTx.userId,
       type: transferTx.type,
-      amountInPaise: transferTx.amount.paise,
+      amountPaise: transferTx.amountPaise,
       amountFormatted: transferTx.amount.format(),
+      currency: transferTx.currency,
       accountId: transferTx.accountId,
-      targetAccountId: transferTx.targetAccountId,
-      date: transferTx.date.toISOString(),
-      description: transferTx.description,
-      notes: transferTx.notes,
+      destinationAccountId: transferTx.destinationAccountId,
+      title: transferTx.title,
+      note: transferTx.note,
+      transactionDate: transferTx.transactionDate.toISOString(),
+      deletedAt: null,
+      isDeleted: false,
       status: transferTx.status,
       idempotencyKey: transferTx.idempotencyKey,
       version: transferTx.version,
       createdAt: transferTx.createdAt.toISOString(),
-      updatedAt: transferTx.updatedAt.toISOString()
+      updatedAt: transferTx.updatedAt.toISOString(),
+
+      // Compatibility fields
+      amountInPaise: transferTx.amountPaise,
+      targetAccountId: transferTx.destinationAccountId,
+      description: transferTx.title,
+      notes: transferTx.note,
+      date: transferTx.transactionDate.toISOString()
     };
   }
 }

@@ -1,25 +1,27 @@
 import { Transaction, TransactionProps } from '@/domain/entities/Transaction';
-import { Money } from '@/domain/value-objects/Money';
 import {
   createTransactionId,
   createAccountId,
-  createCategoryId
+  createCategoryId,
+  createUserId
 } from '@/domain/value-objects/Identifiers';
 
 export function createTestTransaction(overrides: Partial<TransactionProps> = {}): Transaction {
   const now = new Date();
   return new Transaction({
     id: createTransactionId(crypto.randomUUID()),
+    userId: createUserId('test-user-1'),
     type: 'expense',
-    amount: Money.fromPaise(50000), // ₹500.00
+    amountPaise: 50000, // ₹500.00
+    currency: 'INR',
     accountId: createAccountId('acc-1'),
     categoryId: createCategoryId('cat-1'),
-    date: now,
-    description: 'Test Groceries',
+    title: 'Test Groceries',
+    transactionDate: now,
+    deletedAt: null,
     status: 'cleared',
     idempotencyKey: crypto.randomUUID(),
     version: 1,
-    isDeleted: false,
     createdAt: now,
     updatedAt: now,
     ...overrides

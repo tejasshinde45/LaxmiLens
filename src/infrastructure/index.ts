@@ -2,6 +2,8 @@ export * from './database/local/schema';
 export * from './database/local/DexieDatabase';
 export * from './database/local/repositories/DexieTransactionRepository';
 export * from './database/local/repositories/DexieAccountRepository';
+export * from './database/local/repositories/DexieCategoryRepository';
+export * from './database/local/repositories/DexieProfileRepository';
 
 export * from './database/cloud/supabaseClient';
 export * from './database/cloud/mappers/TransactionMapper';

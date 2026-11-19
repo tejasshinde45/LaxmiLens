@@ -1,7 +1,6 @@
 import { AccountRepository } from '@/domain/repositories/AccountRepository';
-import { Account } from '@/domain/entities/Account';
-import { AccountId, createAccountId } from '@/domain/value-objects/Identifiers';
-import { Money } from '@/domain/value-objects/Money';
+import { Account, AccountType } from '@/domain/entities/Account';
+import { AccountId, UserId, createAccountId, createUserId } from '@/domain/value-objects/Identifiers';
 import { db, LaxmiLensDB } from '../DexieDatabase';
 import { LocalAccountRecord } from '../schema';
 
@@ -11,6 +10,11 @@ export class DexieAccountRepository implements AccountRepository {
   public async findById(id: AccountId): Promise<Account | null> {
     const record = await this.database.accounts.get(id);
     return record ? this.toDomain(record) : null;
+  }
+
+  public async findByUserId(userId: UserId): Promise<Account[]> {
+    const records = await this.database.accounts.where('userId').equals(userId).toArray();
+    return records.map((r) => this.toDomain(r));
   }
 
   public async findAll(): Promise<Account[]> {
@@ -30,7 +34,7 @@ export class DexieAccountRepository implements AccountRepository {
 
   public async archive(id: AccountId): Promise<void> {
     await this.database.accounts.update(id, {
-      status: 'archived',
+      isArchived: true,
       updatedAt: new Date().toISOString()
     });
   }
@@ -38,14 +42,16 @@ export class DexieAccountRepository implements AccountRepository {
   private toDomain(record: LocalAccountRecord): Account {
     return new Account({
       id: createAccountId(record.id),
+      userId: createUserId(record.userId || 'local-user'),
       name: record.name,
-      type: record.type,
-      currency: record.currency,
-      openingBalance: Money.fromPaise(record.openingBalanceInPaise, record.currency),
-      status: record.status,
+      accountType: (record.accountType || record.type || 'other') as AccountType,
+      currency: record.currency || 'INR',
+      openingBalancePaise: record.openingBalancePaise ?? record.openingBalanceInPaise ?? 0,
+      institutionName: record.institutionName,
       color: record.color,
       icon: record.icon,
-      version: record.version,
+      isArchived: record.isArchived ?? (record.status === 'archived'),
+      version: record.version ?? 1,
       createdAt: new Date(record.createdAt),
       updatedAt: new Date(record.updatedAt)
     });
@@ -54,16 +60,23 @@ export class DexieAccountRepository implements AccountRepository {
   private toRecord(account: Account): LocalAccountRecord {
     return {
       id: account.id,
+      userId: account.userId,
       name: account.name,
-      type: account.type,
+      accountType: account.accountType,
       currency: account.currency,
-      openingBalanceInPaise: account.openingBalance.paise,
-      status: account.status,
+      openingBalancePaise: account.openingBalancePaise,
+      institutionName: account.institutionName,
       color: account.color,
       icon: account.icon,
+      isArchived: account.isArchived,
       version: account.version,
       createdAt: account.createdAt.toISOString(),
-      updatedAt: account.updatedAt.toISOString()
+      updatedAt: account.updatedAt.toISOString(),
+
+      // Compatibility fields
+      type: account.accountType,
+      openingBalanceInPaise: account.openingBalancePaise,
+      status: account.isArchived ? 'archived' : 'active'
     };
   }
 }
