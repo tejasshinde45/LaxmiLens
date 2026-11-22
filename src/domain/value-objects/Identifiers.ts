@@ -1,4 +1,5 @@
 import { Brand } from '@/types/common';
+import { InvalidUserIdError } from '../errors/DomainErrors';
 
 export type TransactionId = Brand<string, 'TransactionId'>;
 export type AccountId = Brand<string, 'AccountId'>;
@@ -13,3 +14,21 @@ export const createCategoryId = (id: string): CategoryId => id as CategoryId;
 export const createBudgetId = (id: string): BudgetId => id as BudgetId;
 export const createRecurringRuleId = (id: string): RecurringRuleId => id as RecurringRuleId;
 export const createUserId = (id: string): UserId => id as UserId;
+
+export const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isValidUuid(id: unknown): id is string {
+  if (typeof id !== 'string') return false;
+  return UUID_REGEX.test(id.trim());
+}
+
+export function validateUserId(id: unknown): UserId {
+  if (!id || typeof id !== 'string' || !isValidUuid(id)) {
+    throw new InvalidUserIdError(
+      typeof id === 'string' && id.trim().length > 0
+        ? `Invalid user ID '${id}'. A valid UUID is required.`
+        : 'User ID is required and must be a valid UUID.'
+    );
+  }
+  return id.trim() as UserId;
+}

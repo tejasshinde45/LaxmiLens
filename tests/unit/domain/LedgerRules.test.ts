@@ -6,7 +6,7 @@ import { Transaction } from '@/domain/entities/Transaction';
 import { Account } from '@/domain/entities/Account';
 
 describe('LedgerRules', () => {
-  const userId = createUserId('user-1');
+  const userId = createUserId('123e4567-e89b-12d3-a456-426614174000');
   const bankAccountId = createAccountId('bank-1');
   const cashAccountId = createAccountId('cash-1');
   const creditCardId = createAccountId('cc-1');

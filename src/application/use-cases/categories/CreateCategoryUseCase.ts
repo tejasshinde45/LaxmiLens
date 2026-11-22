@@ -2,7 +2,7 @@ import { CategoryRepository } from '@/domain/repositories/CategoryRepository';
 import { SyncPort } from '@/application/ports/SyncPort';
 import { CreateCategoryDTO, CategoryResponseDTO } from '@/application/dto/CategoryDTO';
 import { Category } from '@/domain/entities/Category';
-import { createCategoryId, createUserId } from '@/domain/value-objects/Identifiers';
+import { createCategoryId, validateUserId } from '@/domain/value-objects/Identifiers';
 
 export class CreateCategoryUseCase {
   constructor(
@@ -12,7 +12,7 @@ export class CreateCategoryUseCase {
 
   public async execute(dto: CreateCategoryDTO): Promise<CategoryResponseDTO> {
     const id = createCategoryId(crypto.randomUUID());
-    const userId = createUserId(dto.userId || 'local-user');
+    const userId = validateUserId(dto.userId);
 
     const category = new Category({
       id,
@@ -29,6 +29,7 @@ export class CreateCategoryUseCase {
     await this.categoryRepo.save(category);
 
     await this.syncPort.enqueue({
+      userId: category.userId,
       entity: 'categories',
       entityId: category.id,
       operation: 'INSERT',

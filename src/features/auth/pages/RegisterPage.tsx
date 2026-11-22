@@ -58,8 +58,7 @@ export const RegisterPage: React.FC = () => {
     try {
       setFormError(null);
       setIsGoogleLoading(true);
-      const redirectTarget = `${window.location.origin}/auth/callback?next=/dashboard`;
-      await signInWithGoogle(redirectTarget);
+      await signInWithGoogle(`${window.location.origin}/auth/callback`);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Google sign-in could not be initiated.';
       setFormError(message);

@@ -33,7 +33,7 @@ CREATE TABLE public.profiles (
 Financial containers representing banks, cash, wallets, and credit cards.
 ```sql
 CREATE TABLE public.accounts (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     name VARCHAR(100) NOT NULL,
     account_type VARCHAR(30) NOT NULL DEFAULT 'cash' CHECK (
@@ -44,6 +44,7 @@ CREATE TABLE public.accounts (
     institution_name VARCHAR(100),
     color VARCHAR(30),
     icon VARCHAR(50),
+    notes TEXT,
     is_archived BOOLEAN NOT NULL DEFAULT FALSE,
     version INT NOT NULL DEFAULT 1,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
@@ -55,7 +56,7 @@ CREATE TABLE public.accounts (
 User-customizable income and expense classification categories.
 ```sql
 CREATE TABLE public.categories (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     name VARCHAR(100) NOT NULL,
     type VARCHAR(20) NOT NULL CHECK (type IN ('income', 'expense')),
@@ -74,7 +75,7 @@ CREATE TABLE public.categories (
 The foundational financial ledger recording incomes, expenses, and inter-account transfers.
 ```sql
 CREATE TABLE public.transactions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     account_id UUID NOT NULL REFERENCES public.accounts(id) ON DELETE RESTRICT,
     destination_account_id UUID REFERENCES public.accounts(id) ON DELETE RESTRICT,

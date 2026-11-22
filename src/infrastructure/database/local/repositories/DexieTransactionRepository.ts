@@ -118,10 +118,17 @@ export class DexieTransactionRepository implements TransactionRepository {
     await this.database.transactions.bulkPut(records);
   }
 
-  public async softDelete(id: TransactionId, deletedAt: Date = new Date()): Promise<void> {
+  public async softDelete(
+    id: TransactionId,
+    deletedAt: Date = new Date(),
+    version?: number
+  ): Promise<void> {
+    const existing = await this.database.transactions.get(id);
+    const newVersion = version ?? (existing ? (existing.version ?? 1) + 1 : 2);
     await this.database.transactions.update(id, {
       deletedAt: deletedAt.toISOString(),
       isDeleted: true,
+      version: newVersion,
       updatedAt: new Date().toISOString()
     });
   }

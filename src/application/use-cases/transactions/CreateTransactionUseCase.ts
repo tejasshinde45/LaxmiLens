@@ -2,20 +2,22 @@ import { TransactionRepository } from '@/domain/repositories/TransactionReposito
 import { AccountRepository } from '@/domain/repositories/AccountRepository';
 import { CategoryRepository } from '@/domain/repositories/CategoryRepository';
 import { SyncPort } from '@/application/ports/SyncPort';
+import { UnitOfWork } from '@/application/ports/UnitOfWork';
 import { CreateTransactionDTO, TransactionResponseDTO } from '@/application/dto/TransactionDTO';
 import { Transaction } from '@/domain/entities/Transaction';
 import {
   createTransactionId,
   createAccountId,
   createCategoryId,
-  createUserId
+  validateUserId
 } from '@/domain/value-objects/Identifiers';
 import {
   AccountNotFoundError,
   CategoryNotFoundError,
   CategoryTypeMismatchError,
   TransferAccountMismatchError,
-  DuplicateTransactionError
+  DuplicateTransactionError,
+  UnauthorizedEntityAccessError
 } from '@/domain/errors/DomainErrors';
 
 export class CreateTransactionUseCase {
@@ -23,12 +25,23 @@ export class CreateTransactionUseCase {
     private readonly transactionRepo: TransactionRepository,
     private readonly accountRepo: AccountRepository,
     private readonly categoryRepo: CategoryRepository,
-    private readonly syncPort: SyncPort
+    private readonly syncPort: SyncPort,
+    private readonly unitOfWork: UnitOfWork
   ) {}
 
   public async execute(dto: CreateTransactionDTO): Promise<TransactionResponseDTO> {
-    const userId = createUserId(dto.userId || 'local-user');
     const sourceAccountId = createAccountId(dto.accountId);
+    const sourceAccount = await this.accountRepo.findById(sourceAccountId);
+    if (!sourceAccount) {
+      throw new AccountNotFoundError(dto.accountId);
+    }
+
+    // Ownership consistency check: validate UUID and ensure entity ownership agreement
+    const userId = dto.userId ? validateUserId(dto.userId) : validateUserId(sourceAccount.userId);
+    if (sourceAccount.userId !== userId) {
+      throw new UnauthorizedEntityAccessError('Account', dto.accountId);
+    }
+
     const resolvedTitle = (dto.title || dto.description || '').trim();
     const resolvedDate = new Date(dto.transactionDate || dto.date || new Date().toISOString());
     const amountPaise = dto.amountPaise ?? dto.amountInPaise ?? 0;
@@ -40,13 +53,7 @@ export class CreateTransactionUseCase {
       throw new DuplicateTransactionError(idempotencyKey);
     }
 
-    // 2. Validate source account
-    const sourceAccount = await this.accountRepo.findById(sourceAccountId);
-    if (!sourceAccount) {
-      throw new AccountNotFoundError(dto.accountId);
-    }
-
-    // 3. Validate transfer destination if type is transfer
+    // 2. Validate transfer destination if type is transfer
     let destinationAccountId = dto.destinationAccountId || dto.targetAccountId;
     if (dto.type === 'transfer') {
       if (!destinationAccountId || destinationAccountId === dto.accountId) {
@@ -56,16 +63,22 @@ export class CreateTransactionUseCase {
       if (!destAccount) {
         throw new AccountNotFoundError(destinationAccountId);
       }
+      if (destAccount.userId !== userId) {
+        throw new UnauthorizedEntityAccessError('Account', destinationAccountId);
+      }
     } else {
       destinationAccountId = undefined;
     }
 
-    // 4. Validate category if provided
+    // 3. Validate category if provided
     let categoryId = dto.categoryId;
     if (categoryId && dto.type !== 'transfer') {
       const category = await this.categoryRepo.findById(createCategoryId(categoryId));
       if (!category) {
         throw new CategoryNotFoundError(categoryId);
+      }
+      if (category.userId !== userId && !category.isDefault) {
+        throw new UnauthorizedEntityAccessError('Category', categoryId);
       }
       if (category.type !== dto.type) {
         throw new CategoryTypeMismatchError(dto.type as 'income' | 'expense', category.type);
@@ -97,14 +110,11 @@ export class CreateTransactionUseCase {
       updatedAt: now
     });
 
-    // Save to local storage (Offline-First)
-    await this.transactionRepo.save(transaction);
-
-    // Enqueue to transactional outbox for cloud sync
-    await this.syncPort.enqueue({
-      entity: 'transactions',
+    const outboxEntry = {
+      userId: transaction.userId,
+      entity: 'transactions' as const,
       entityId: transaction.id,
-      operation: 'INSERT',
+      operation: 'INSERT' as const,
       payload: {
         id: transaction.id,
         user_id: transaction.userId,
@@ -112,16 +122,23 @@ export class CreateTransactionUseCase {
         amount_paise: transaction.amountPaise,
         currency: transaction.currency,
         account_id: transaction.accountId,
-        destination_account_id: transaction.destinationAccountId,
-        category_id: transaction.categoryId,
+        destination_account_id: transaction.destinationAccountId ?? null,
+        category_id: transaction.categoryId ?? null,
         title: transaction.title,
-        note: transaction.note,
+        note: transaction.note ?? null,
         transaction_date: transaction.transactionDate.toISOString(),
-        idempotency_key: transaction.idempotencyKey,
-        device_id: transaction.deviceId,
-        version: transaction.version
+        deleted_at: null,
+        version: transaction.version,
+        device_id: transaction.deviceId ?? null,
+        idempotency_key: transaction.idempotencyKey
       },
       idempotencyKey
+    };
+
+    // Save atomically in local store
+    await this.unitOfWork.run(async () => {
+      await this.transactionRepo.save(transaction);
+      await this.syncPort.enqueue(outboxEntry);
     });
 
     return {

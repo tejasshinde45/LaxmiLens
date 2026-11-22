@@ -1,6 +1,7 @@
 import { AccountRepository } from '@/domain/repositories/AccountRepository';
 import { Account, AccountType } from '@/domain/entities/Account';
-import { AccountId, UserId, createAccountId, createUserId } from '@/domain/value-objects/Identifiers';
+import { AccountId, UserId, createAccountId, validateUserId } from '@/domain/value-objects/Identifiers';
+import { InvalidUserIdError } from '@/domain/errors/DomainErrors';
 import { db, LaxmiLensDB } from '../DexieDatabase';
 import { LocalAccountRecord } from '../schema';
 
@@ -32,17 +33,35 @@ export class DexieAccountRepository implements AccountRepository {
     await this.database.accounts.bulkPut(records);
   }
 
-  public async archive(id: AccountId): Promise<void> {
+  public async archive(id: AccountId, version?: number): Promise<void> {
+    const existing = await this.database.accounts.get(id);
+    const newVersion = version !== undefined ? version : (existing ? (existing.version ?? 0) + 1 : 1);
     await this.database.accounts.update(id, {
       isArchived: true,
+      version: newVersion,
+      status: 'archived',
+      updatedAt: new Date().toISOString()
+    });
+  }
+
+  public async restore(id: AccountId, version?: number): Promise<void> {
+    const existing = await this.database.accounts.get(id);
+    const newVersion = version !== undefined ? version : (existing ? (existing.version ?? 0) + 1 : 1);
+    await this.database.accounts.update(id, {
+      isArchived: false,
+      version: newVersion,
+      status: 'active',
       updatedAt: new Date().toISOString()
     });
   }
 
   private toDomain(record: LocalAccountRecord): Account {
+    if (!record.userId) {
+      throw new InvalidUserIdError(`Account record '${record.id}' is missing a valid userId.`);
+    }
     return new Account({
       id: createAccountId(record.id),
-      userId: createUserId(record.userId || 'local-user'),
+      userId: validateUserId(record.userId),
       name: record.name,
       accountType: (record.accountType || record.type || 'other') as AccountType,
       currency: record.currency || 'INR',
@@ -50,6 +69,7 @@ export class DexieAccountRepository implements AccountRepository {
       institutionName: record.institutionName,
       color: record.color,
       icon: record.icon,
+      notes: record.notes,
       isArchived: record.isArchived ?? (record.status === 'archived'),
       version: record.version ?? 1,
       createdAt: new Date(record.createdAt),
@@ -58,9 +78,10 @@ export class DexieAccountRepository implements AccountRepository {
   }
 
   private toRecord(account: Account): LocalAccountRecord {
+    const validatedUserId = validateUserId(account.userId);
     return {
       id: account.id,
-      userId: account.userId,
+      userId: validatedUserId,
       name: account.name,
       accountType: account.accountType,
       currency: account.currency,
@@ -68,6 +89,7 @@ export class DexieAccountRepository implements AccountRepository {
       institutionName: account.institutionName,
       color: account.color,
       icon: account.icon,
+      notes: account.notes,
       isArchived: account.isArchived,
       version: account.version,
       createdAt: account.createdAt.toISOString(),

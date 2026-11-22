@@ -23,6 +23,7 @@ export interface CreateTransactionDTO {
 
 export interface UpdateTransactionDTO {
   id: string;
+  userId?: string;
   amountPaise?: number;
   accountId?: string;
   destinationAccountId?: string;

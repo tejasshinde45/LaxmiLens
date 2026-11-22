@@ -75,6 +75,12 @@ export class DuplicateTransactionError extends DomainError {
   }
 }
 
+export class InvalidUserIdError extends DomainError {
+  constructor(message = 'A valid user UUID is required for this operation.') {
+    super(message, 'INVALID_USER_ID');
+  }
+}
+
 export class UnauthorizedEntityAccessError extends DomainError {
   constructor(entityName: string, entityId: string) {
     super(`User is not authorized to access or reference ${entityName} with ID '${entityId}'.`, 'UNAUTHORIZED_ENTITY_ACCESS');

@@ -7,6 +7,7 @@ export interface CreateAccountDTO {
   institutionName?: string;
   color?: string;
   icon?: string;
+  notes?: string;
 
   // Compatibility fields
   type?: 'cash' | 'bank' | 'savings' | 'credit_card' | 'wallet' | 'other' | 'upi';
@@ -15,11 +16,13 @@ export interface CreateAccountDTO {
 
 export interface UpdateAccountDTO {
   id: string;
+  userId?: string;
   name?: string;
   accountType?: 'cash' | 'bank' | 'savings' | 'credit_card' | 'wallet' | 'other';
   institutionName?: string;
   color?: string;
   icon?: string;
+  notes?: string;
   isArchived?: boolean;
 }
 
@@ -34,6 +37,7 @@ export interface AccountResponseDTO {
   institutionName?: string;
   color?: string;
   icon?: string;
+  notes?: string;
   isArchived: boolean;
   version: number;
   createdAt: string;
@@ -54,4 +58,10 @@ export interface AccountBalanceDTO {
   // Compatibility fields
   openingBalanceInPaise?: number;
   currentBalanceInPaise?: number;
+}
+
+export interface AccountWithBalanceDTO extends AccountResponseDTO {
+  currentBalancePaise: number;
+  currentBalanceFormatted: string;
+  isCreditCard: boolean;
 }

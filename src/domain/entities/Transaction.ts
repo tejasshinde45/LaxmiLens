@@ -150,10 +150,11 @@ export class Transaction {
     return this.type === 'expense';
   }
 
-  public markDeleted(deletedAt: Date = new Date()): Transaction {
+  public markDeleted(deletedAt: Date = new Date(), newVersion?: number): Transaction {
     return new Transaction({
       ...this,
       deletedAt,
+      version: newVersion ?? this.version + 1,
       updatedAt: new Date()
     });
   }

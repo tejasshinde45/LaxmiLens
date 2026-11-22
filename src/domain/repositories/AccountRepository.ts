@@ -7,5 +7,6 @@ export interface AccountRepository {
   findAll(): Promise<Account[]>;
   save(account: Account): Promise<void>;
   saveBatch(accounts: Account[]): Promise<void>;
-  archive(id: AccountId): Promise<void>;
+  archive(id: AccountId, version?: number): Promise<void>;
+  restore(id: AccountId, version?: number): Promise<void>;
 }

@@ -1,5 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import { APP_CONFIG } from '@/config/constants';
+import { isValidUuid } from '@/domain/value-objects/Identifiers';
 import {
   LocalProfileRecord,
   LocalAccountRecord,
@@ -83,6 +84,90 @@ export class LaxmiLensDB extends Dexie {
               t.deletedAt = t.deletedAt ?? (t.isDeleted ? new Date().toISOString() : null);
             })
         ]);
+      });
+
+    // Version 3: User-Scoped Outbox Foundation (Phase 2D.7.1 & 2D.7.1.1 Hardening)
+    this.version(3)
+      .stores({
+        syncOutbox:
+          '++id, userId, entity, entityId, operation, idempotencyKey, attempts, createdAt, [userId+id], [userId+entity]'
+      })
+      .upgrade(async (tx) => {
+        // Upgrade existing local outbox records to guarantee ownership integrity safely and idempotently
+        await tx
+          .table('syncOutbox')
+          .toCollection()
+          .modify((record: LocalOutboxRecord) => {
+            // 1. Check if record already carries a recognized quarantine tag (idempotency)
+            if (
+              typeof record.userId === 'string' &&
+              (record.userId.startsWith('quarantine-') || record.userId === 'ambiguous-unassigned')
+            ) {
+              return;
+            }
+
+            // 2. Extract and validate all potential ownership sources
+            const payload = (record.payload || {}) as Record<string, unknown>;
+
+            const topLevelUuid =
+              typeof record.userId === 'string' && isValidUuid(record.userId)
+                ? record.userId.trim().toLowerCase()
+                : undefined;
+
+            const payloadSnakeUuid =
+              typeof payload.user_id === 'string' && isValidUuid(payload.user_id)
+                ? payload.user_id.trim().toLowerCase()
+                : undefined;
+
+            const payloadCamelUuid =
+              typeof payload.userId === 'string' && isValidUuid(payload.userId)
+                ? payload.userId.trim().toLowerCase()
+                : undefined;
+
+            // 3. Check for malformed (non-UUID) ownership indicators in historical records (e.g. 'local-user')
+            const hasMalformedTopLevel =
+              typeof record.userId === 'string' &&
+              record.userId.trim() !== '' &&
+              !topLevelUuid;
+
+            const hasMalformedPayload =
+              (typeof payload.user_id === 'string' &&
+                payload.user_id.trim() !== '' &&
+                !payloadSnakeUuid) ||
+              (typeof payload.userId === 'string' &&
+                payload.userId.trim() !== '' &&
+                !payloadCamelUuid);
+
+            // 4. Check for conflicts across available valid UUID sources
+            const validSources = [
+              topLevelUuid,
+              payloadSnakeUuid,
+              payloadCamelUuid
+            ].filter((s): s is string => Boolean(s));
+
+            const hasConflict =
+              validSources.length > 1 &&
+              validSources.some((src) => src !== validSources[0]);
+
+            if (hasConflict) {
+              // Conflicting ownership between top-level, payload.user_id, or payload.userId
+              record.userId = 'quarantine-conflicting-ownership';
+              return;
+            }
+
+            if (validSources.length > 0) {
+              // At least one valid UUID source exists and they all agree
+              record.userId = validSources[0];
+              return;
+            }
+
+            // 5. If no valid UUID was found (missing, empty, or malformed non-UUID such as 'local-user')
+            if (hasMalformedTopLevel || hasMalformedPayload) {
+              record.userId = 'quarantine-malformed-ownership';
+            } else {
+              record.userId = 'ambiguous-unassigned';
+            }
+          });
       });
   }
 }

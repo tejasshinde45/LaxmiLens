@@ -71,7 +71,7 @@ To enable Google sign-in in production or local development, the following exter
    - Application Type: **Web application**.
    - Name: `LaxmiLens Supabase Client`.
    - **Authorized JavaScript origins**:
-     - Local: `http://localhost:5173`
+     - Local: `http://localhost:3000`
      - Production: `https://your-domain.app` (e.g., `https://laxmilens.app`)
    - **Authorized redirect URIs**:
      - Must point to your Supabase project authentication endpoint:
@@ -86,10 +86,10 @@ To enable Google sign-in in production or local development, the following exter
 
 #### Step 3: Supabase URL Configuration & Redirect Allowlist
 1. In Supabase Dashboard, navigate to **Authentication** $\rightarrow$ **URL Configuration**.
-2. **Site URL**: Set to your production base URL (or `http://localhost:5173` during development).
+2. **Site URL**: Set to your base URL (`http://localhost:3000` during development, or your production URL).
 3. **Redirect URLs (Allowlist)**: Add permitted redirect targets:
-   - `http://localhost:5173/**`
-   - `http://localhost:5173/auth/callback`
+   - `http://localhost:3000/**`
+   - `http://localhost:3000/auth/callback`
    - `https://your-domain.app/**`
    - `https://your-domain.app/auth/callback`
 

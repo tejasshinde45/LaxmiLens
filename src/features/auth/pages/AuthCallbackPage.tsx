@@ -33,7 +33,17 @@ export const AuthCallbackPage: React.FC = () => {
       const safeRedirect = getSafeRedirectUrl(nextParam, '/dashboard');
 
       try {
-        // 3. Retrieve or exchange session (Supabase handles PKCE/hash token extraction automatically)
+        // 3. If authorization code is present in URL (PKCE flow), exchange it for a session
+        const code = searchParams.get('code');
+        if (code) {
+          try {
+            await supabase.auth.exchangeCodeForSession(code);
+          } catch {
+            // If already exchanged by automatic client detection, getSession will retrieve it
+          }
+        }
+
+        // 4. Retrieve session
         const { data, error } = await supabase.auth.getSession();
 
         if (error) {

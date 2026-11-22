@@ -2,6 +2,7 @@ import { TransactionRepository } from '@/domain/repositories/TransactionReposito
 import { AccountRepository } from '@/domain/repositories/AccountRepository';
 import { CategoryRepository } from '@/domain/repositories/CategoryRepository';
 import { SyncPort } from '@/application/ports/SyncPort';
+import { UnitOfWork } from '@/application/ports/UnitOfWork';
 import { CreateTransactionDTO, TransactionResponseDTO } from '@/application/dto/TransactionDTO';
 import { CreateTransactionUseCase } from './CreateTransactionUseCase';
 
@@ -16,6 +17,7 @@ export class RecordTransactionUseCase {
     transactionRepo: TransactionRepository,
     accountRepo: AccountRepository,
     syncPort: SyncPort,
+    unitOfWork: UnitOfWork,
     categoryRepo?: CategoryRepository
   ) {
     const fallbackCategoryRepo: CategoryRepository = categoryRepo || {
@@ -32,7 +34,8 @@ export class RecordTransactionUseCase {
       transactionRepo,
       accountRepo,
       fallbackCategoryRepo,
-      syncPort
+      syncPort,
+      unitOfWork
     );
   }
 

@@ -2,13 +2,18 @@ export * from './ports/LoggerPort';
 export * from './ports/StoragePort';
 export * from './ports/SyncPort';
 export * from './ports/AuthPort';
+export * from './ports/UnitOfWork';
 
 export * from './dto';
 
 export * from './use-cases/accounts/CreateAccountUseCase';
 export * from './use-cases/accounts/UpdateAccountUseCase';
 export * from './use-cases/accounts/ArchiveAccountUseCase';
+export * from './use-cases/accounts/RestoreAccountUseCase';
+export * from './use-cases/accounts/RecoverStaleAccountUseCase';
 export * from './use-cases/accounts/GetAccountBalanceUseCase';
+export * from './use-cases/accounts/GetAccountsWithBalanceUseCase';
+export * from './use-cases/accounts/GetAccountDetailsUseCase';
 
 export * from './use-cases/categories/CreateCategoryUseCase';
 

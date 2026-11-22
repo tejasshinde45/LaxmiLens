@@ -17,6 +17,12 @@ import { ReportsPage } from '@/features/reports/ReportsPage';
 import { SettingsPage } from '@/features/settings/SettingsPage';
 
 export const router = createBrowserRouter([
+  // Dedicated OAuth Callback Route
+  {
+    path: '/auth/callback',
+    element: <AuthCallbackPage />
+  },
+
   // Guest-only Authentication Routes
   {
     element: <GuestRoute />,
@@ -36,10 +42,6 @@ export const router = createBrowserRouter([
       {
         path: '/reset-password',
         element: <ResetPasswordPage />
-      },
-      {
-        path: '/auth/callback',
-        element: <AuthCallbackPage />
       }
     ]
   },

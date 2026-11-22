@@ -1,12 +1,29 @@
+import Dexie from 'dexie';
 import { SyncPort, OutboxEntry, SyncResult } from '@/application/ports/SyncPort';
 import { db, LaxmiLensDB } from '../database/local/DexieDatabase';
 import { LocalOutboxRecord } from '../database/local/schema';
+import { validateUserId } from '@/domain/value-objects/Identifiers';
 
 export class OutboxManager implements SyncPort {
   constructor(private readonly database: LaxmiLensDB = db) {}
 
   public async enqueue(entry: Omit<OutboxEntry, 'id' | 'attempts' | 'createdAt'>): Promise<void> {
+    const validatedUserId = validateUserId(entry.userId);
+
+    // Cross-check payload ownership consistency if present in payload
+    const payload = (entry.payload || {}) as Record<string, unknown>;
+    const payloadUserIdRaw = payload.user_id ?? payload.userId;
+    if (payloadUserIdRaw !== undefined && payloadUserIdRaw !== null) {
+      const payloadUserId = validateUserId(payloadUserIdRaw);
+      if (payloadUserId !== validatedUserId) {
+        throw new Error(
+          `Outbox ownership mismatch: entry userId '${validatedUserId}' does not match payload user_id '${payloadUserId}'.`
+        );
+      }
+    }
+
     const record: LocalOutboxRecord = {
+      userId: validatedUserId,
       entity: entry.entity,
       entityId: entry.entityId,
       operation: entry.operation,
@@ -19,12 +36,19 @@ export class OutboxManager implements SyncPort {
     await this.database.syncOutbox.add(record);
   }
 
-  public async getPendingCount(): Promise<number> {
-    return this.database.syncOutbox.count();
+  public async getPendingCount(userId: string): Promise<number> {
+    const validatedUserId = validateUserId(userId);
+    return this.database.syncOutbox.where('userId').equals(validatedUserId).count();
   }
 
-  public async getPendingEntries(limit = 50): Promise<LocalOutboxRecord[]> {
-    return this.database.syncOutbox.orderBy('id').limit(limit).toArray();
+  public async getPendingEntries(userId: string, limit = 50): Promise<LocalOutboxRecord[]> {
+    const validatedUserId = validateUserId(userId);
+    const safeLimit = Math.max(1, Math.floor(Number.isFinite(limit) && limit > 0 ? limit : 50));
+    return this.database.syncOutbox
+      .where('[userId+id]')
+      .between([validatedUserId, Dexie.minKey], [validatedUserId, Dexie.maxKey])
+      .limit(safeLimit)
+      .toArray();
   }
 
   public async markSuccess(id: number): Promise<void> {

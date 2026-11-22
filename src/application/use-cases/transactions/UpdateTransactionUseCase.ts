@@ -2,19 +2,22 @@ import { TransactionRepository } from '@/domain/repositories/TransactionReposito
 import { AccountRepository } from '@/domain/repositories/AccountRepository';
 import { CategoryRepository } from '@/domain/repositories/CategoryRepository';
 import { SyncPort } from '@/application/ports/SyncPort';
+import { UnitOfWork } from '@/application/ports/UnitOfWork';
 import { UpdateTransactionDTO, TransactionResponseDTO } from '@/application/dto/TransactionDTO';
 import { Transaction } from '@/domain/entities/Transaction';
 import {
   createTransactionId,
   createAccountId,
-  createCategoryId
+  createCategoryId,
+  validateUserId
 } from '@/domain/value-objects/Identifiers';
 import {
   TransactionNotFoundError,
   AccountNotFoundError,
   CategoryNotFoundError,
   CategoryTypeMismatchError,
-  TransferAccountMismatchError
+  TransferAccountMismatchError,
+  UnauthorizedEntityAccessError
 } from '@/domain/errors/DomainErrors';
 
 export class UpdateTransactionUseCase {
@@ -22,7 +25,8 @@ export class UpdateTransactionUseCase {
     private readonly transactionRepo: TransactionRepository,
     private readonly accountRepo: AccountRepository,
     private readonly categoryRepo: CategoryRepository,
-    private readonly syncPort: SyncPort
+    private readonly syncPort: SyncPort,
+    private readonly unitOfWork: UnitOfWork
   ) {}
 
   public async execute(dto: UpdateTransactionDTO): Promise<TransactionResponseDTO> {
@@ -30,6 +34,13 @@ export class UpdateTransactionUseCase {
     const existing = await this.transactionRepo.findById(txId);
     if (!existing) {
       throw new TransactionNotFoundError(dto.id);
+    }
+
+    if (dto.userId !== undefined) {
+      const validatedUserId = validateUserId(dto.userId);
+      if (existing.userId !== validatedUserId) {
+        throw new UnauthorizedEntityAccessError('Transaction', dto.id);
+      }
     }
 
     const resolvedAmountPaise = dto.amountPaise ?? dto.amountInPaise ?? existing.amountPaise;
@@ -43,6 +54,9 @@ export class UpdateTransactionUseCase {
     if (dto.accountId) {
       const acc = await this.accountRepo.findById(resolvedAccountId);
       if (!acc) throw new AccountNotFoundError(dto.accountId);
+      if (acc.userId !== existing.userId) {
+        throw new UnauthorizedEntityAccessError('Account', dto.accountId);
+      }
     }
 
     // Validate destination if transfer
@@ -53,6 +67,9 @@ export class UpdateTransactionUseCase {
       }
       const destAcc = await this.accountRepo.findById(destId);
       if (!destAcc) throw new AccountNotFoundError(destId);
+      if (destAcc.userId !== existing.userId) {
+        throw new UnauthorizedEntityAccessError('Account', destId);
+      }
       resolvedDestinationId = destId;
     } else {
       resolvedDestinationId = undefined;
@@ -66,6 +83,9 @@ export class UpdateTransactionUseCase {
     if (resolvedCategoryId && existing.type !== 'transfer') {
       const cat = await this.categoryRepo.findById(resolvedCategoryId);
       if (!cat) throw new CategoryNotFoundError(resolvedCategoryId);
+      if (cat.userId !== existing.userId && !cat.isDefault) {
+        throw new UnauthorizedEntityAccessError('Category', resolvedCategoryId);
+      }
       if (cat.type !== existing.type) {
         throw new CategoryTypeMismatchError(existing.type as 'income' | 'expense', cat.type);
       }
@@ -93,12 +113,11 @@ export class UpdateTransactionUseCase {
       updatedAt: new Date()
     });
 
-    await this.transactionRepo.save(updated);
-
-    await this.syncPort.enqueue({
-      entity: 'transactions',
+    const outboxEntry = {
+      userId: updated.userId,
+      entity: 'transactions' as const,
       entityId: updated.id,
-      operation: 'UPDATE',
+      operation: 'UPDATE' as const,
       payload: {
         id: updated.id,
         user_id: updated.userId,
@@ -106,14 +125,19 @@ export class UpdateTransactionUseCase {
         amount_paise: updated.amountPaise,
         currency: updated.currency,
         account_id: updated.accountId,
-        destination_account_id: updated.destinationAccountId,
-        category_id: updated.categoryId,
+        destination_account_id: updated.destinationAccountId ?? null,
+        category_id: updated.categoryId ?? null,
         title: updated.title,
-        note: updated.note,
+        note: updated.note ?? null,
         transaction_date: updated.transactionDate.toISOString(),
         version: updated.version
       },
       idempotencyKey: crypto.randomUUID()
+    };
+
+    await this.unitOfWork.run(async () => {
+      await this.transactionRepo.save(updated);
+      await this.syncPort.enqueue(outboxEntry);
     });
 
     return {

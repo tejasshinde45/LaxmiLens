@@ -21,5 +21,5 @@ export interface TransactionRepository {
   findMany(filter: TransactionFilter): Promise<Transaction[]>;
   save(transaction: Transaction): Promise<void>;
   saveBatch(transactions: Transaction[]): Promise<void>;
-  softDelete(id: TransactionId, deletedAt?: Date): Promise<void>;
+  softDelete(id: TransactionId, deletedAt?: Date, version?: number): Promise<void>;
 }

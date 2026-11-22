@@ -3,6 +3,7 @@ export type SyncEntity = 'accounts' | 'transactions' | 'categories' | 'budgets' 
 
 export interface OutboxEntry {
   id: string;
+  userId: string;
   entity: SyncEntity;
   entityId: string;
   operation: SyncOperation;
@@ -24,6 +25,6 @@ export interface SyncResult {
 export interface SyncPort {
   enqueue(entry: Omit<OutboxEntry, 'id' | 'attempts' | 'createdAt'>): Promise<void>;
   processOutbox(): Promise<SyncResult>;
-  getPendingCount(): Promise<number>;
+  getPendingCount(userId: string): Promise<number>;
   clearOutbox(): Promise<void>;
 }

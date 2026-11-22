@@ -8,8 +8,13 @@ describe('Database Migration & RLS Security Validation', () => {
 
   it('contains valid version-controlled migration files', () => {
     expect(migrationFiles.length).toBeGreaterThanOrEqual(2);
-    expect(migrationFiles).toContain('20260101000000_initial_schema.sql');
     expect(migrationFiles).toContain('20260102000000_core_financial_foundation.sql');
+    expect(migrationFiles).toContain('20260103000000_add_account_notes.sql');
+
+    // Verify archived prototype migration is preserved
+    const archiveDir = path.resolve(__dirname, '../../../supabase/archive');
+    const archiveFiles = fs.readdirSync(archiveDir).filter((f) => f.endsWith('.sql'));
+    expect(archiveFiles).toContain('20260101000000_initial_schema.sql');
   });
 
   it('validates schema, RLS policies, and ownership triggers in core financial migration', () => {

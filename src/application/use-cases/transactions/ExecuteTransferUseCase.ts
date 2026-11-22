@@ -1,9 +1,18 @@
 import { TransactionRepository } from '@/domain/repositories/TransactionRepository';
 import { AccountRepository } from '@/domain/repositories/AccountRepository';
 import { SyncPort } from '@/application/ports/SyncPort';
+import { UnitOfWork } from '@/application/ports/UnitOfWork';
 import { Transaction } from '@/domain/entities/Transaction';
-import { createTransactionId, createAccountId, createUserId } from '@/domain/value-objects/Identifiers';
-import { AccountNotFoundError, TransferAccountMismatchError } from '@/domain/errors/DomainErrors';
+import {
+  createTransactionId,
+  createAccountId,
+  validateUserId
+} from '@/domain/value-objects/Identifiers';
+import {
+  AccountNotFoundError,
+  TransferAccountMismatchError,
+  UnauthorizedEntityAccessError
+} from '@/domain/errors/DomainErrors';
 import { TransactionResponseDTO } from '@/application/dto/TransactionDTO';
 
 export interface ExecuteTransferRequest {
@@ -25,7 +34,8 @@ export class ExecuteTransferUseCase {
   constructor(
     private readonly transactionRepo: TransactionRepository,
     private readonly accountRepo: AccountRepository,
-    private readonly syncPort: SyncPort
+    private readonly syncPort: SyncPort,
+    private readonly unitOfWork: UnitOfWork
   ) {}
 
   public async execute(req: ExecuteTransferRequest): Promise<TransactionResponseDTO> {
@@ -44,7 +54,15 @@ export class ExecuteTransferUseCase {
     const resolvedDate = new Date(req.transactionDate || req.date || new Date().toISOString());
     const resolvedNote = req.note ?? req.notes;
     const idempotencyKey = req.idempotencyKey || crypto.randomUUID();
-    const userId = createUserId(req.userId || fromAccount.userId);
+
+    // Ownership consistency check: ensure userId is valid UUID and both accounts belong to the user
+    const userId = req.userId ? validateUserId(req.userId) : validateUserId(fromAccount.userId);
+    if (fromAccount.userId !== userId) {
+      throw new UnauthorizedEntityAccessError('Account', req.fromAccountId);
+    }
+    if (toAccount.userId !== userId) {
+      throw new UnauthorizedEntityAccessError('Account', req.toAccountId);
+    }
     const now = new Date();
     const transactionId = createTransactionId(crypto.randomUUID());
 
@@ -67,14 +85,11 @@ export class ExecuteTransferUseCase {
       updatedAt: now
     });
 
-    // Save atomically in local store
-    await this.transactionRepo.save(transferTx);
-
-    // Enqueue to outbox for cloud sync
-    await this.syncPort.enqueue({
-      entity: 'transactions',
+    const outboxEntry = {
+      userId: transferTx.userId,
+      entity: 'transactions' as const,
       entityId: transferTx.id,
-      operation: 'INSERT',
+      operation: 'INSERT' as const,
       payload: {
         id: transferTx.id,
         user_id: transferTx.userId,
@@ -82,14 +97,23 @@ export class ExecuteTransferUseCase {
         amount_paise: transferTx.amountPaise,
         currency: transferTx.currency,
         account_id: transferTx.accountId,
-        destination_account_id: transferTx.destinationAccountId,
+        destination_account_id: transferTx.destinationAccountId ?? null,
+        category_id: null,
         title: transferTx.title,
-        note: transferTx.note,
+        note: transferTx.note ?? null,
         transaction_date: transferTx.transactionDate.toISOString(),
-        idempotency_key: transferTx.idempotencyKey,
-        version: transferTx.version
+        deleted_at: null,
+        version: transferTx.version,
+        device_id: transferTx.deviceId ?? null,
+        idempotency_key: transferTx.idempotencyKey
       },
       idempotencyKey
+    };
+
+    // Save atomically in local store
+    await this.unitOfWork.run(async () => {
+      await this.transactionRepo.save(transferTx);
+      await this.syncPort.enqueue(outboxEntry);
     });
 
     return {

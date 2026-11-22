@@ -17,6 +17,7 @@ export interface LocalAccountRecord {
   institutionName?: string;
   color?: string;
   icon?: string;
+  notes?: string;
   isArchived: boolean;
   version: number;
   createdAt: string;
@@ -108,6 +109,7 @@ export interface LocalRecurringRuleRecord {
 
 export interface LocalOutboxRecord {
   id?: number;
+  userId: string;
   entity: 'profiles' | 'accounts' | 'transactions' | 'categories' | 'budgets' | 'recurring_rules';
   entityId: string;
   operation: 'INSERT' | 'UPDATE' | 'DELETE';

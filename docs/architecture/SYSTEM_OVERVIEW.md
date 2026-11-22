@@ -11,6 +11,7 @@ LaxmiLens is architected as an offline-first, client-centric Progressive Web App
 │   React 19 Components  │  Radix UI  │  Tailwind CSS v4 (Obsidian Gold)  │
 │   React Router         │  TanStack Query (View-Model Cache Only)       │
 │   Auth Pages           │  LoginPage, RegisterPage, ForgotPass, Reset   │
+│   Accounts Feature     │  AccountsPage, useAccounts, Modals & Metrics  │
 │   Route Guards         │  ProtectedRoute, GuestRoute, AuthCallbackPage │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │ Invokes Use Cases & Context
@@ -19,7 +20,8 @@ LaxmiLens is architected as an offline-first, client-centric Progressive Web App
 │                         APPLICATION LAYER                              │
 │                                                                        │
 │   Auth: Session management, profile hydration                          │
-│   Accounts: CreateAccount, UpdateAccount, ArchiveAccount, GetBalance   │
+│   Accounts: CreateAccount, UpdateAccount, ArchiveAccount, RestoreAccount, │
+│             GetAccountsWithBalance, GetAccountDetails                  │
 │   Categories: CreateCategory                                           │
 │   Transactions: CreateTransaction, UpdateTransaction, DeleteTransaction│
 │                 GetTransactions, ExecuteTransfer, RecordTransaction    │

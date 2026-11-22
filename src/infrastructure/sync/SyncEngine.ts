@@ -1,6 +1,7 @@
 import { APP_CONFIG } from '@/config/constants';
 import { OutboxManager } from './OutboxManager';
 import { SyncStatusDTO } from '@/application/dto/SyncDTO';
+import { LocalOutboxRecord } from '../database/local/schema';
 
 export type SyncState = 'idle' | 'syncing' | 'offline' | 'error';
 export type SyncListener = (status: SyncStatusDTO) => void;
@@ -18,22 +19,26 @@ export class SyncEngine {
 
   private initNetworkListeners(): void {
     if (typeof window !== 'undefined') {
-      window.addEventListener('online', () => {
-        this.state = 'idle';
-        this.notify();
-        void this.sync();
-      });
-
-      window.addEventListener('offline', () => {
-        this.state = 'offline';
-        this.notify();
-      });
+      window.addEventListener('online', this.handleOnline);
+      window.addEventListener('offline', this.handleOffline);
 
       if (!navigator.onLine) {
         this.state = 'offline';
       }
     }
   }
+
+  private handleOnline = (): void => {
+    this.state = 'idle';
+    this.notify();
+    // Safety Hotfix: Intentionally do NOT trigger this.sync() here.
+    // Premature synchronization is disabled until real remote cloud dispatchers are implemented.
+  };
+
+  private handleOffline = (): void => {
+    this.state = 'offline';
+    this.notify();
+  };
 
   public subscribe(listener: SyncListener): () => void {
     this.listeners.add(listener);
@@ -43,8 +48,14 @@ export class SyncEngine {
     };
   }
 
-  public async getStatus(): Promise<SyncStatusDTO> {
-    const pendingCount = await this.outboxManager.getPendingCount();
+  public async getStatus(userId?: string): Promise<SyncStatusDTO> {
+    let pendingCount = 0;
+    try {
+      pendingCount = await (this.outboxManager.getPendingCount as (id?: string) => Promise<number>)(userId);
+    } catch {
+      // Fallback for non-IndexedDB environments (e.g. headless SSR / unit test runners or unauthenticated)
+      pendingCount = 0;
+    }
     const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
 
     return {
@@ -56,7 +67,7 @@ export class SyncEngine {
     };
   }
 
-  public async sync(): Promise<void> {
+  public async sync(userId?: string): Promise<void> {
     if (this.state === 'syncing' || (typeof navigator !== 'undefined' && !navigator.onLine)) {
       return;
     }
@@ -66,27 +77,21 @@ export class SyncEngine {
     this.notify();
 
     try {
-      const pendingEntries = await this.outboxManager.getPendingEntries();
+      const pendingEntries = await (this.outboxManager.getPendingEntries as (id?: string) => Promise<LocalOutboxRecord[]>)(userId);
 
+      // Safety Hotfix:
+      // Real cloud synchronization dispatchers are not yet implemented.
+      // Under no circumstance should pending outbox entries be marked as successful
+      // or deleted from the local database without a verified remote operation.
+      // Every pending outbox entry remains completely untouched and preserved.
       for (const entry of pendingEntries) {
         if (entry.attempts >= APP_CONFIG.sync.maxRetries) {
-          continue; // Dead-letter or wait for manual resolution
+          continue;
         }
-
-        try {
-          // Idempotent sync push will dispatch here to cloud repository in feature implementation
-          if (entry.id !== undefined) {
-            await this.outboxManager.markSuccess(entry.id);
-          }
-        } catch (err) {
-          const errMsg = err instanceof Error ? err.message : 'Unknown sync push error';
-          if (entry.id !== undefined) {
-            await this.outboxManager.markFailure(entry.id, errMsg);
-          }
-        }
+        // Remote dispatchers are unimplemented; entries remain pending.
       }
 
-      this.lastSyncedAt = new Date().toISOString();
+      // Do not update lastSyncedAt since zero remote cloud operations were performed.
       this.state = 'idle';
     } catch (err) {
       this.state = 'error';
@@ -97,10 +102,9 @@ export class SyncEngine {
   }
 
   public startPeriodicSync(): void {
+    // Safety Hotfix: Periodic sync timer is disabled until real remote cloud
+    // synchronization dispatchers are implemented.
     if (this.timer) return;
-    this.timer = setInterval(() => {
-      void this.sync();
-    }, APP_CONFIG.sync.outboxFlushIntervalMs);
   }
 
   public stopPeriodicSync(): void {
@@ -108,6 +112,15 @@ export class SyncEngine {
       clearInterval(this.timer);
       this.timer = null;
     }
+  }
+
+  public cleanup(): void {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('online', this.handleOnline);
+      window.removeEventListener('offline', this.handleOffline);
+    }
+    this.stopPeriodicSync();
+    this.listeners.clear();
   }
 
   private notify(): void {

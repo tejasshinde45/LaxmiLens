@@ -39,7 +39,7 @@ Represents financial containers (bank accounts, credit cards, cash, digital wall
 
 | Column Name | Database Type | TypeScript Type | Nullable | Default | Description & Invariants |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `id` | `UUID` | `string` | No | `uuid_generate_v4()` | Unique account identifier. |
+| `id` | `UUID` | `string` | No | `gen_random_uuid()` | Unique account identifier. |
 | `user_id` | `UUID` | `string` | No | `auth.uid()` | Foreign key to `auth.users(id)`. Identifies the account owner. |
 | `name` | `VARCHAR(100)` | `string` | No | None | Descriptive account name (e.g., 'HDFC Salary Account', 'Pocket Cash'). |
 | `account_type` | `VARCHAR(30)` | `AccountType` | No | `'cash'` | Categorization: `'cash'`, `'bank'`, `'savings'`, `'credit_card'`, `'wallet'`, `'other'`. |
@@ -48,6 +48,7 @@ Represents financial containers (bank accounts, credit cards, cash, digital wall
 | `institution_name` | `VARCHAR(100)` | `string` \| `null` | Yes | `NULL` | Optional banking or financial institution name (e.g., 'State Bank of India'). |
 | `color` | `VARCHAR(30)` | `string` \| `null` | Yes | `NULL` | Hex color code or design token for UI representation. |
 | `icon` | `VARCHAR(50)` | `string` \| `null` | Yes | `NULL` | Icon identifier (e.g. Lucide icon name) for UI visual representation. |
+| `notes` | `TEXT` | `string` \| `null` | Yes | `NULL` | Optional user notes or annotations regarding account purposes, limits, or guidelines. |
 | `is_archived` | `BOOLEAN` | `boolean` | No | `FALSE` | If `TRUE`, account is hidden from active entry forms but retained for historical ledger integrity. |
 | `version` | `INT` | `number` | No | `1` | Monotonically increasing revision counter for optimistic concurrency and sync replication. |
 | `created_at` | `TIMESTAMPTZ` | `string` | No | `timezone('utc', now())` | UTC creation timestamp. |
@@ -66,7 +67,7 @@ Classifies cash inflow and outflow transactions into user-customizable categorie
 
 | Column Name | Database Type | TypeScript Type | Nullable | Default | Description & Invariants |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `id` | `UUID` | `string` | No | `uuid_generate_v4()` | Unique category identifier. |
+| `id` | `UUID` | `string` | No | `gen_random_uuid()` | Unique category identifier. |
 | `user_id` | `UUID` | `string` | No | `auth.uid()` | Foreign key to `auth.users(id)`. Categories are user-scoped. |
 | `name` | `VARCHAR(100)` | `string` | No | None | Category display name (e.g., 'Groceries', 'Salary', 'Investment Return'). |
 | `type` | `VARCHAR(20)` | `CategoryType` | No | None | Flow direction: `'income'` or `'expense'`. Checked via SQL constraint. |
@@ -91,7 +92,7 @@ The foundational ledger recording all financial movements (incomes, expenses, an
 
 | Column Name | Database Type | TypeScript Type | Nullable | Default | Description & Invariants |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `id` | `UUID` | `string` | No | `uuid_generate_v4()` | Unique transaction identifier. |
+| `id` | `UUID` | `string` | No | `gen_random_uuid()` | Unique transaction identifier. |
 | `user_id` | `UUID` | `string` | No | `auth.uid()` | Foreign key to `auth.users(id)`. |
 | `account_id` | `UUID` | `string` | No | None | Foreign key to `accounts(id)`. The primary affected account (source for transfer/expense, recipient for income). |
 | `destination_account_id` | `UUID` | `string` \| `null` | Yes | `NULL` | Foreign key to `accounts(id)`. Target account receiving transferred funds. Must be `NULL` for income/expense. |

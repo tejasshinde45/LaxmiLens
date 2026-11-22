@@ -11,6 +11,7 @@ import { AccountRepository } from '@/domain/repositories/AccountRepository';
 import { CategoryRepository } from '@/domain/repositories/CategoryRepository';
 import { TransactionRepository, TransactionFilter } from '@/domain/repositories/TransactionRepository';
 import { SyncPort, OutboxEntry, SyncResult } from '@/application/ports/SyncPort';
+import { UnitOfWork } from '@/application/ports/UnitOfWork';
 
 import { Account } from '@/domain/entities/Account';
 import { Category } from '@/domain/entities/Category';
@@ -41,7 +42,7 @@ class InMemoryAccountRepository implements AccountRepository {
   async saveBatch(accounts: Account[]): Promise<void> {
     accounts.forEach((a) => this.accounts.set(a.id, a));
   }
-  async archive(id: AccountId): Promise<void> {
+  async archive(id: AccountId, version?: number): Promise<void> {
     const acc = this.accounts.get(id);
     if (acc) {
       this.accounts.set(
@@ -49,6 +50,21 @@ class InMemoryAccountRepository implements AccountRepository {
         new Account({
           ...acc,
           isArchived: true,
+          version: version ?? acc.version + 1,
+          updatedAt: new Date()
+        })
+      );
+    }
+  }
+  async restore(id: AccountId, version?: number): Promise<void> {
+    const acc = this.accounts.get(id);
+    if (acc) {
+      this.accounts.set(
+        id,
+        new Account({
+          ...acc,
+          isArchived: false,
+          version: version ?? acc.version + 1,
           updatedAt: new Date()
         })
       );
@@ -125,11 +141,17 @@ class InMemoryTransactionRepository implements TransactionRepository {
   async saveBatch(transactions: Transaction[]): Promise<void> {
     transactions.forEach((t) => this.transactions.set(t.id, t));
   }
-  async softDelete(id: TransactionId, deletedAt: Date = new Date()): Promise<void> {
+  async softDelete(id: TransactionId, deletedAt: Date = new Date(), version?: number): Promise<void> {
     const tx = this.transactions.get(id);
     if (tx) {
-      this.transactions.set(id, tx.markDeleted(deletedAt));
+      this.transactions.set(id, tx.markDeleted(deletedAt, version));
     }
+  }
+}
+
+class MockUnitOfWork implements UnitOfWork {
+  async run<T>(work: () => Promise<T>): Promise<T> {
+    return await work();
   }
 }
 
@@ -154,12 +176,15 @@ describe('Core Financial Use Cases', () => {
   let categoryRepo: InMemoryCategoryRepository;
   let transactionRepo: InMemoryTransactionRepository;
   let syncPort: MockSyncPort;
+  let unitOfWork: MockUnitOfWork;
+  const testUserId = '123e4567-e89b-12d3-a456-426614174000';
 
   beforeEach(() => {
     accountRepo = new InMemoryAccountRepository();
     categoryRepo = new InMemoryCategoryRepository();
     transactionRepo = new InMemoryTransactionRepository();
     syncPort = new MockSyncPort();
+    unitOfWork = new MockUnitOfWork();
   });
 
   it('creates, archives, and computes account balance', async () => {
@@ -169,6 +194,7 @@ describe('Core Financial Use Cases', () => {
 
     // 1. Create account with opening balance ₹5,000 (500000 paise)
     const acc = await createAccount.execute({
+      userId: testUserId,
       name: 'Salary Bank',
       accountType: 'bank',
       openingBalancePaise: 500000,
@@ -197,22 +223,26 @@ describe('Core Financial Use Cases', () => {
       transactionRepo,
       accountRepo,
       categoryRepo,
-      syncPort
+      syncPort,
+      unitOfWork
     );
 
     const acc = await createAccount.execute({
+      userId: testUserId,
       name: 'Wallet',
       accountType: 'cash',
       openingBalancePaise: 100000
     });
 
     const expenseCategory = await createCategory.execute({
+      userId: testUserId,
       name: 'Food',
       type: 'expense'
     });
 
     // Valid expense with expense category
     const tx = await createTransaction.execute({
+      userId: testUserId,
       type: 'expense',
       amountPaise: 25000, // ₹250
       accountId: acc.id,
@@ -226,6 +256,7 @@ describe('Core Financial Use Cases', () => {
     // Attempting to record an income using an expense category must fail
     await expect(
       createTransaction.execute({
+        userId: testUserId,
         type: 'income',
         amountPaise: 50000,
         accountId: acc.id,
@@ -241,10 +272,12 @@ describe('Core Financial Use Cases', () => {
       transactionRepo,
       accountRepo,
       categoryRepo,
-      syncPort
+      syncPort,
+      unitOfWork
     );
 
     const acc = await createAccount.execute({
+      userId: testUserId,
       name: 'Bank',
       accountType: 'bank',
       openingBalancePaise: 100000
@@ -278,14 +311,16 @@ describe('Core Financial Use Cases', () => {
       transactionRepo,
       accountRepo,
       categoryRepo,
-      syncPort
+      syncPort,
+      unitOfWork
     );
-    const deleteTransaction = new DeleteTransactionUseCase(transactionRepo, syncPort);
+    const deleteTransaction = new DeleteTransactionUseCase(transactionRepo, syncPort, unitOfWork);
     const getTransactions = new GetTransactionsUseCase(transactionRepo);
     const getBalance = new GetAccountBalanceUseCase(accountRepo, transactionRepo);
 
     // Opening balance ₹1,000 (100000 paise)
     const acc = await createAccount.execute({
+      userId: testUserId,
       name: 'Checking',
       accountType: 'bank',
       openingBalancePaise: 100000

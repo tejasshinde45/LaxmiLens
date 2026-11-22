@@ -1,5 +1,6 @@
-import { AccountId, UserId } from '../value-objects/Identifiers';
+import { AccountId, UserId, isValidUuid } from '../value-objects/Identifiers';
 import { Money } from '../value-objects/Money';
+import { InvalidUserIdError } from '../errors/DomainErrors';
 
 export type AccountType = 'cash' | 'bank' | 'savings' | 'credit_card' | 'wallet' | 'other';
 
@@ -15,6 +16,7 @@ export interface AccountProps {
   institutionName?: string;
   color?: string;
   icon?: string;
+  notes?: string;
   isArchived?: boolean;
   version?: number;
   createdAt?: Date;
@@ -31,6 +33,7 @@ export class Account {
   public readonly institutionName?: string;
   public readonly color?: string;
   public readonly icon?: string;
+  public readonly notes?: string;
   public readonly isArchived: boolean;
   public readonly version: number;
   public readonly createdAt: Date;
@@ -39,6 +42,14 @@ export class Account {
   constructor(props: AccountProps) {
     if (!props.name || props.name.trim().length === 0) {
       throw new Error('Account name must not be empty.');
+    }
+
+    if (!props.userId || !isValidUuid(props.userId)) {
+      throw new InvalidUserIdError(
+        typeof props.userId === 'string' && props.userId.trim().length > 0
+          ? `Invalid user ID '${props.userId}'. A valid UUID is required.`
+          : 'User ID is required and must be a valid UUID.'
+      );
     }
 
     const now = new Date();
@@ -51,6 +62,7 @@ export class Account {
     this.institutionName = props.institutionName?.trim();
     this.color = props.color;
     this.icon = props.icon;
+    this.notes = props.notes?.trim();
     this.isArchived = props.isArchived ?? false;
     this.version = props.version ?? 1;
     this.createdAt = props.createdAt ?? now;

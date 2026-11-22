@@ -5,7 +5,7 @@ export function createTestAccount(overrides: Partial<AccountProps> = {}): Accoun
   const now = new Date();
   return new Account({
     id: createAccountId(crypto.randomUUID()),
-    userId: createUserId('test-user-1'),
+    userId: createUserId('123e4567-e89b-12d3-a456-426614174000'),
     name: 'HDFC Salary Bank',
     accountType: 'bank',
     currency: 'INR',

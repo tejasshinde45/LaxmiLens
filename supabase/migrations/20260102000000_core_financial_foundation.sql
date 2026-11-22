@@ -35,7 +35,7 @@ CREATE POLICY "Users can insert their own profile"
 
 -- 3. FINANCIAL ACCOUNTS TABLE
 CREATE TABLE IF NOT EXISTS public.accounts (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     name VARCHAR(100) NOT NULL,
     account_type VARCHAR(30) NOT NULL CHECK (
@@ -74,7 +74,7 @@ CREATE POLICY "Users can delete their own accounts"
 
 -- 4. TRANSACTION CATEGORIES TABLE
 CREATE TABLE IF NOT EXISTS public.categories (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     name VARCHAR(100) NOT NULL,
     type VARCHAR(20) NOT NULL CHECK (type IN ('income', 'expense')),
@@ -109,7 +109,7 @@ CREATE POLICY "Users can delete their own categories"
 
 -- 5. TRANSACTIONS LEDGER TABLE
 CREATE TABLE IF NOT EXISTS public.transactions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     type VARCHAR(20) NOT NULL CHECK (type IN ('income', 'expense', 'transfer')),
     amount_paise BIGINT NOT NULL CHECK (amount_paise > 0),

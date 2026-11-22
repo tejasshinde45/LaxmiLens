@@ -1,34 +1,55 @@
 import { TransactionRepository } from '@/domain/repositories/TransactionRepository';
 import { SyncPort } from '@/application/ports/SyncPort';
-import { createTransactionId } from '@/domain/value-objects/Identifiers';
-import { TransactionNotFoundError } from '@/domain/errors/DomainErrors';
+import { UnitOfWork } from '@/application/ports/UnitOfWork';
+import { createTransactionId, validateUserId } from '@/domain/value-objects/Identifiers';
+import { TransactionNotFoundError, UnauthorizedEntityAccessError } from '@/domain/errors/DomainErrors';
 
 export class DeleteTransactionUseCase {
   constructor(
     private readonly transactionRepo: TransactionRepository,
-    private readonly syncPort: SyncPort
+    private readonly syncPort: SyncPort,
+    private readonly unitOfWork: UnitOfWork
   ) {}
 
-  public async execute(transactionIdStr: string): Promise<void> {
+  public async execute(transactionIdStr: string, userIdStr?: string): Promise<void> {
     const txId = createTransactionId(transactionIdStr);
     const existing = await this.transactionRepo.findById(txId);
     if (!existing) {
       throw new TransactionNotFoundError(transactionIdStr);
     }
 
-    const now = new Date();
-    await this.transactionRepo.softDelete(txId, now);
+    if (userIdStr !== undefined) {
+      const validatedUserId = validateUserId(userIdStr);
+      if (existing.userId !== validatedUserId) {
+        throw new UnauthorizedEntityAccessError('Transaction', transactionIdStr);
+      }
+    }
 
-    await this.syncPort.enqueue({
-      entity: 'transactions',
+    if (existing.isDeleted) {
+      // Idempotent: already soft-deleted
+      return;
+    }
+
+    const now = new Date();
+    const targetVersion = existing.version + 1;
+
+    const outboxEntry = {
+      userId: existing.userId,
+      entity: 'transactions' as const,
       entityId: txId,
-      operation: 'DELETE',
+      operation: 'DELETE' as const,
       payload: {
         id: txId,
+        user_id: existing.userId,
         deleted_at: now.toISOString(),
-        version: existing.version + 1
+        version: targetVersion
       },
       idempotencyKey: crypto.randomUUID()
+    };
+
+    await this.unitOfWork.run(async () => {
+      await this.transactionRepo.softDelete(txId, now, targetVersion);
+      await this.syncPort.enqueue(outboxEntry);
     });
   }
 }
