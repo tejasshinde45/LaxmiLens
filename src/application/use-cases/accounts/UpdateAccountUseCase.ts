@@ -15,16 +15,14 @@ export class UpdateAccountUseCase {
 
   public async execute(dto: UpdateAccountDTO): Promise<AccountResponseDTO> {
     const accountId = createAccountId(dto.id);
-    const existing = await this.accountRepo.findById(accountId);
+    const validatedUserId = validateUserId(dto.userId);
+    const existing = await this.accountRepo.findById(accountId, validatedUserId);
     if (!existing) {
       throw new AccountNotFoundError(dto.id);
     }
 
-    if (dto.userId !== undefined) {
-      const validatedUserId = validateUserId(dto.userId);
-      if (existing.userId !== validatedUserId) {
-        throw new UnauthorizedEntityAccessError('Account', dto.id);
-      }
+    if (existing.userId !== validatedUserId) {
+      throw new UnauthorizedEntityAccessError('Account', dto.id);
     }
 
     const updated = new Account({

@@ -42,23 +42,31 @@ class TransactionalInMemoryTransactionRepository implements TransactionRepositor
     this.transactions = new Map(this.snapshot);
   }
 
-  async findById(id: TransactionId): Promise<Transaction | null> {
-    return this.transactions.get(id) || null;
+  async findById(id: TransactionId, userId: UserId): Promise<Transaction | null> {
+    const tx = this.transactions.get(id);
+    if (!tx) return null;
+    if (userId && tx.userId !== userId) {
+      throw new UnauthorizedEntityAccessError('Transaction', id);
+    }
+    return tx;
   }
 
-  async findByIdempotencyKey(key: string, userId?: UserId): Promise<Transaction | null> {
+  async findByIdempotencyKey(key: string, userId: UserId): Promise<Transaction | null> {
     const all = Array.from(this.transactions.values());
     return all.find((t) => t.idempotencyKey === key && (!userId || t.userId === userId)) || null;
   }
 
-  async findByAccount(accountId: AccountId): Promise<Transaction[]> {
+  async findByAccount(accountId: AccountId, userId: UserId): Promise<Transaction[]> {
     return Array.from(this.transactions.values()).filter(
-      (t) => t.accountId === accountId || t.destinationAccountId === accountId
+      (t) => (t.accountId === accountId || t.destinationAccountId === accountId) && (!userId || t.userId === userId)
     );
   }
 
   async findMany(filter: TransactionFilter): Promise<Transaction[]> {
     let result = Array.from(this.transactions.values());
+    if (filter.userId) {
+      result = result.filter((t) => t.userId === filter.userId);
+    }
     if (!filter.includeDeleted) {
       result = result.filter((t) => !t.isDeleted);
     }
@@ -78,7 +86,7 @@ class TransactionalInMemoryTransactionRepository implements TransactionRepositor
     transactions.forEach((t) => this.transactions.set(t.id, t));
   }
 
-  async softDelete(id: TransactionId, deletedAt: Date = new Date(), version?: number): Promise<void> {
+  async softDelete(id: TransactionId, userId: UserId, deletedAt: Date = new Date(), version?: number): Promise<void> {
     const tx = this.transactions.get(id);
     if (tx) {
       this.transactions.set(id, tx.markDeleted(deletedAt, version));
@@ -90,14 +98,19 @@ class TransactionalInMemoryTransactionRepository implements TransactionRepositor
 class InMemoryAccountRepository implements AccountRepository {
   public accounts = new Map<string, Account>();
 
-  async findById(id: AccountId): Promise<Account | null> {
-    return this.accounts.get(id) || null;
+  async findById(id: AccountId, userId: UserId): Promise<Account | null> {
+    const acc = this.accounts.get(id);
+    if (!acc) return null;
+    if (userId && acc.userId !== userId) {
+      throw new UnauthorizedEntityAccessError('Account', id);
+    }
+    return acc;
   }
   async findByUserId(userId: UserId): Promise<Account[]> {
     return Array.from(this.accounts.values()).filter((a) => a.userId === userId);
   }
-  async findAll(): Promise<Account[]> {
-    return Array.from(this.accounts.values());
+  async findAll(userId: UserId): Promise<Account[]> {
+    return this.findByUserId(userId);
   }
   async save(account: Account): Promise<void> {
     this.accounts.set(account.id, account);
@@ -105,7 +118,7 @@ class InMemoryAccountRepository implements AccountRepository {
   async saveBatch(accounts: Account[]): Promise<void> {
     accounts.forEach((a) => this.accounts.set(a.id, a));
   }
-  async archive(id: AccountId, version?: number): Promise<void> {
+  async archive(id: AccountId, userId: UserId, version?: number): Promise<void> {
     const acc = this.accounts.get(id);
     if (acc) {
       this.accounts.set(
@@ -119,7 +132,7 @@ class InMemoryAccountRepository implements AccountRepository {
       );
     }
   }
-  async restore(id: AccountId, version?: number): Promise<void> {
+  async restore(id: AccountId, userId: UserId, version?: number): Promise<void> {
     const acc = this.accounts.get(id);
     if (acc) {
       this.accounts.set(
@@ -139,14 +152,17 @@ class InMemoryAccountRepository implements AccountRepository {
 class InMemoryCategoryRepository implements CategoryRepository {
   public categories = new Map<string, Category>();
 
-  async findById(id: CategoryId): Promise<Category | null> {
-    return this.categories.get(id) || null;
+  async findById(id: CategoryId, userId: UserId): Promise<Category | null> {
+    const cat = this.categories.get(id);
+    if (!cat) return null;
+    if (userId && cat.userId !== userId && !cat.isDefault) return null;
+    return cat;
   }
   async findByUserId(userId: UserId): Promise<Category[]> {
-    return Array.from(this.categories.values()).filter((c) => c.userId === userId);
+    return Array.from(this.categories.values()).filter((c) => c.userId === userId || c.isDefault);
   }
-  async findAll(): Promise<Category[]> {
-    return Array.from(this.categories.values());
+  async findAll(userId: UserId): Promise<Category[]> {
+    return this.findByUserId(userId);
   }
   async save(category: Category): Promise<void> {
     this.categories.set(category.id, category);
@@ -154,7 +170,7 @@ class InMemoryCategoryRepository implements CategoryRepository {
   async saveBatch(categories: Category[]): Promise<void> {
     categories.forEach((c) => this.categories.set(c.id, c));
   }
-  async archive(id: CategoryId): Promise<void> {
+  async archive(id: CategoryId, userId: UserId): Promise<void> {
     const cat = this.categories.get(id);
     if (cat) {
       this.categories.set(
@@ -448,6 +464,7 @@ describe('Phase 2D.2: Transaction Foundation & Data Integrity Remediation', () =
 
       await expect(
         useCase.execute({
+          userId: testUserId,
           fromAccountId: testSourceAccId,
           toAccountId: testDestAccId,
           amountPaise: 100000
@@ -468,6 +485,7 @@ describe('Phase 2D.2: Transaction Foundation & Data Integrity Remediation', () =
 
       await expect(
         useCase.execute({
+          userId: testUserId,
           fromAccountId: testSourceAccId,
           toAccountId: testSourceAccId,
           amountPaise: 100000
@@ -613,7 +631,7 @@ describe('Phase 2D.2: Transaction Foundation & Data Integrity Remediation', () =
       await deleteTx.execute(created.id, testUserId);
 
       // Verify soft deletion in repo (record is NOT deleted from storage)
-      const inRepo = await txRepo.findById(createTransactionId(created.id));
+      const inRepo = await txRepo.findById(createTransactionId(created.id), testUserId);
       expect(inRepo).not.toBeNull();
       expect(inRepo?.isDeleted).toBe(true);
       expect(inRepo?.deletedAt).not.toBeNull();
@@ -653,7 +671,7 @@ describe('Phase 2D.2: Transaction Foundation & Data Integrity Remediation', () =
       await deleteTx.execute(created.id, testUserId);
       expect(syncPort.enqueued.length).toBe(2);
 
-      const inRepo = await txRepo.findById(createTransactionId(created.id));
+      const inRepo = await txRepo.findById(createTransactionId(created.id), testUserId);
       expect(inRepo?.version).toBe(2);
     });
 
@@ -680,7 +698,7 @@ describe('Phase 2D.2: Transaction Foundation & Data Integrity Remediation', () =
       await expect(deleteTx.execute(created.id, testUserId)).rejects.toThrow('Simulated outbox enqueue failure');
 
       // Verify transaction remains active at version 1 in repo
-      const inRepo = await txRepo.findById(createTransactionId(created.id));
+      const inRepo = await txRepo.findById(createTransactionId(created.id), testUserId);
       expect(inRepo?.isDeleted).toBe(false);
       expect(inRepo?.deletedAt).toBeNull();
       expect(inRepo?.version).toBe(1);

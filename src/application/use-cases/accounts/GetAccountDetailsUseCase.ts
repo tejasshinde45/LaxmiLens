@@ -1,6 +1,6 @@
 import { AccountRepository } from '@/domain/repositories/AccountRepository';
 import { TransactionRepository } from '@/domain/repositories/TransactionRepository';
-import { createAccountId, createUserId } from '@/domain/value-objects/Identifiers';
+import { createAccountId, validateUserId } from '@/domain/value-objects/Identifiers';
 import { AccountNotFoundError, UnauthorizedEntityAccessError } from '@/domain/errors/DomainErrors';
 import { LedgerRules } from '@/domain/rules/LedgerRules';
 import { AccountWithBalanceDTO } from '@/application/dto/AccountDTO';
@@ -17,18 +17,18 @@ export class GetAccountDetailsUseCase {
 
   public async execute(accountIdStr: string, userIdStr: string): Promise<AccountDetailsDTO> {
     const accountId = createAccountId(accountIdStr);
-    const userId = createUserId(userIdStr);
+    const userId = validateUserId(userIdStr);
 
-    const account = await this.accountRepo.findById(accountId);
+    const account = await this.accountRepo.findById(accountId, userId);
     if (!account) {
       throw new AccountNotFoundError(accountIdStr);
     }
 
     if (account.userId !== userId) {
-      throw new UnauthorizedEntityAccessError(accountIdStr, userIdStr);
+      throw new UnauthorizedEntityAccessError('Account', accountIdStr);
     }
 
-    const transactions = await this.transactionRepo.findByAccount(accountId);
+    const transactions = await this.transactionRepo.findByAccount(accountId, userId);
     const activeTransactions = transactions.filter((t) => !t.isDeleted);
     const currentBalance = LedgerRules.calculateAccountBalance(
       account.openingBalance,

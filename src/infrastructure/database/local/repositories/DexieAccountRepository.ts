@@ -1,41 +1,80 @@
 import { AccountRepository } from '@/domain/repositories/AccountRepository';
 import { Account, AccountType } from '@/domain/entities/Account';
 import { AccountId, UserId, createAccountId, validateUserId } from '@/domain/value-objects/Identifiers';
-import { InvalidUserIdError } from '@/domain/errors/DomainErrors';
+import { InvalidUserIdError, AccountNotFoundError, UnauthorizedEntityAccessError } from '@/domain/errors/DomainErrors';
 import { db, LaxmiLensDB } from '../DexieDatabase';
 import { LocalAccountRecord } from '../schema';
 
 export class DexieAccountRepository implements AccountRepository {
   constructor(private readonly database: LaxmiLensDB = db) {}
 
-  public async findById(id: AccountId): Promise<Account | null> {
-    const record = await this.database.accounts.get(id);
-    return record ? this.toDomain(record) : null;
+  public async findById(id: AccountId, userId: UserId): Promise<Account | null> {
+    const validatedUserId = validateUserId(userId);
+    let record: LocalAccountRecord | undefined | null;
+    if (typeof this.database.accounts.where === 'function') {
+      record = await this.database.accounts
+        .where('[userId+id]')
+        .equals([validatedUserId, id])
+        .first();
+    } else {
+      const candidate = await this.database.accounts.get(id);
+      if (candidate && candidate.userId === validatedUserId) {
+        record = candidate;
+      }
+    }
+    if (!record) {
+      const raw = await this.database.accounts.get(id);
+      if (raw && raw.userId && raw.userId !== validatedUserId) {
+        throw new UnauthorizedEntityAccessError('Account', id);
+      }
+      return null;
+    }
+    return this.toDomain(record);
   }
 
   public async findByUserId(userId: UserId): Promise<Account[]> {
-    const records = await this.database.accounts.where('userId').equals(userId).toArray();
+    const validatedUserId = validateUserId(userId);
+    const records = await this.database.accounts.where('userId').equals(validatedUserId).toArray();
     return records.map((r) => this.toDomain(r));
   }
 
-  public async findAll(): Promise<Account[]> {
-    const records = await this.database.accounts.toArray();
-    return records.map((r) => this.toDomain(r));
+  public async findAll(userId: UserId): Promise<Account[]> {
+    const validatedUserId = validateUserId(userId);
+    return this.findByUserId(validatedUserId);
   }
 
   public async save(account: Account): Promise<void> {
+    const validatedUserId = validateUserId(account.userId);
+    const existing = await this.database.accounts.get(account.id);
+    if (existing && existing.userId && existing.userId !== validatedUserId) {
+      throw new UnauthorizedEntityAccessError('Account', account.id);
+    }
     const record = this.toRecord(account);
     await this.database.accounts.put(record);
   }
 
   public async saveBatch(accounts: Account[]): Promise<void> {
+    for (const a of accounts) {
+      const validatedUserId = validateUserId(a.userId);
+      const existing = await this.database.accounts.get(a.id);
+      if (existing && existing.userId && existing.userId !== validatedUserId) {
+        throw new UnauthorizedEntityAccessError('Account', a.id);
+      }
+    }
     const records = accounts.map((a) => this.toRecord(a));
     await this.database.accounts.bulkPut(records);
   }
 
-  public async archive(id: AccountId, version?: number): Promise<void> {
+  public async archive(id: AccountId, userId: UserId, version?: number): Promise<void> {
+    const validatedUserId = validateUserId(userId);
     const existing = await this.database.accounts.get(id);
-    const newVersion = version !== undefined ? version : (existing ? (existing.version ?? 0) + 1 : 1);
+    if (!existing) {
+      throw new AccountNotFoundError(id);
+    }
+    if (existing.userId !== validatedUserId) {
+      throw new UnauthorizedEntityAccessError('Account', id);
+    }
+    const newVersion = version !== undefined ? version : (existing.version ?? 0) + 1;
     await this.database.accounts.update(id, {
       isArchived: true,
       version: newVersion,
@@ -44,9 +83,16 @@ export class DexieAccountRepository implements AccountRepository {
     });
   }
 
-  public async restore(id: AccountId, version?: number): Promise<void> {
+  public async restore(id: AccountId, userId: UserId, version?: number): Promise<void> {
+    const validatedUserId = validateUserId(userId);
     const existing = await this.database.accounts.get(id);
-    const newVersion = version !== undefined ? version : (existing ? (existing.version ?? 0) + 1 : 1);
+    if (!existing) {
+      throw new AccountNotFoundError(id);
+    }
+    if (existing.userId !== validatedUserId) {
+      throw new UnauthorizedEntityAccessError('Account', id);
+    }
+    const newVersion = version !== undefined ? version : (existing.version ?? 0) + 1;
     await this.database.accounts.update(id, {
       isArchived: false,
       version: newVersion,

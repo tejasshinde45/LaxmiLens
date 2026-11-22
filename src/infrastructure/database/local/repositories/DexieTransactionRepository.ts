@@ -7,64 +7,104 @@ import {
   createTransactionId,
   createAccountId,
   createCategoryId,
-  createUserId
+  validateUserId
 } from '@/domain/value-objects/Identifiers';
+import {
+  InvalidUserIdError,
+  TransactionNotFoundError,
+  UnauthorizedEntityAccessError
+} from '@/domain/errors/DomainErrors';
 import { db, LaxmiLensDB } from '../DexieDatabase';
 import { LocalTransactionRecord } from '../schema';
 
 export class DexieTransactionRepository implements TransactionRepository {
   constructor(private readonly database: LaxmiLensDB = db) {}
 
-  public async findById(id: TransactionId): Promise<Transaction | null> {
-    const record = await this.database.transactions.get(id);
-    return record ? this.toDomain(record) : null;
-  }
-
-  public async findByIdempotencyKey(key: string, userId?: UserId): Promise<Transaction | null> {
-    let collection = this.database.transactions.where('idempotencyKey').equals(key);
-    if (userId) {
-      const records = await collection.toArray();
-      const matched = records.find((r) => r.userId === userId);
-      return matched ? this.toDomain(matched) : null;
+  public async findById(id: TransactionId, userId: UserId): Promise<Transaction | null> {
+    const validatedUserId = validateUserId(userId);
+    let record: LocalTransactionRecord | undefined | null;
+    if (typeof this.database.transactions.where === 'function') {
+      record = await this.database.transactions
+        .where('[userId+id]')
+        .equals([validatedUserId, id])
+        .first();
+    } else {
+      const candidate = await this.database.transactions.get(id);
+      if (candidate && candidate.userId === validatedUserId) {
+        record = candidate;
+      }
     }
-    const record = await collection.first();
-    return record ? this.toDomain(record) : null;
+    if (!record) {
+      const raw = await this.database.transactions.get(id);
+      if (raw && raw.userId && raw.userId !== validatedUserId) {
+        throw new UnauthorizedEntityAccessError('Transaction', id);
+      }
+      return null;
+    }
+    return this.toDomain(record);
   }
 
-  public async findByAccount(accountId: AccountId): Promise<Transaction[]> {
-    const records = await this.database.transactions
-      .where('accountId')
-      .equals(accountId)
-      .or('destinationAccountId')
+  public async findByIdempotencyKey(key: string, userId: UserId): Promise<Transaction | null> {
+    const validatedUserId = validateUserId(userId);
+    const records = await this.database.transactions.where('idempotencyKey').equals(key).toArray();
+    const matched = records.find((r) => r.userId === validatedUserId);
+    return matched ? this.toDomain(matched) : null;
+  }
+
+  public async findByAccount(accountId: AccountId, userId: UserId): Promise<Transaction[]> {
+    const validatedUserId = validateUserId(userId);
+    const sourceRecords = await this.database.transactions
+      .where('[userId+accountId]')
+      .equals([validatedUserId, accountId])
+      .toArray();
+
+    const destRecords = await this.database.transactions
+      .where('destinationAccountId')
       .equals(accountId)
       .toArray();
+    const userDestRecords = destRecords.filter((r) => r.userId === validatedUserId);
+
+    const map = new Map<string, LocalTransactionRecord>();
+    sourceRecords.forEach((r) => map.set(r.id, r));
+    userDestRecords.forEach((r) => map.set(r.id, r));
+
+    const records = Array.from(map.values());
+    records.sort((a, b) => {
+      const dateA = new Date(a.transactionDate || a.date || '').getTime();
+      const dateB = new Date(b.transactionDate || b.date || '').getTime();
+      return dateB - dateA;
+    });
 
     return records.map((r) => this.toDomain(r));
   }
 
   public async findMany(filter: TransactionFilter): Promise<Transaction[]> {
+    const validatedUserId = validateUserId(filter.userId);
     let records: LocalTransactionRecord[];
 
     if (filter.accountId) {
-      records = await this.database.transactions
-        .where('accountId')
-        .equals(filter.accountId)
-        .or('destinationAccountId')
+      const sourceRecords = await this.database.transactions
+        .where('[userId+accountId]')
+        .equals([validatedUserId, filter.accountId])
+        .toArray();
+
+      const destRecords = await this.database.transactions
+        .where('destinationAccountId')
         .equals(filter.accountId)
         .toArray();
-    } else if (filter.userId) {
-      records = await this.database.transactions.where('userId').equals(filter.userId).toArray();
+      const userDestRecords = destRecords.filter((r) => r.userId === validatedUserId);
+
+      const map = new Map<string, LocalTransactionRecord>();
+      sourceRecords.forEach((r) => map.set(r.id, r));
+      userDestRecords.forEach((r) => map.set(r.id, r));
+      records = Array.from(map.values());
     } else {
-      records = await this.database.transactions.toArray();
+      records = await this.database.transactions.where('userId').equals(validatedUserId).toArray();
     }
 
     // Exclude soft-deleted transactions by default unless explicitly included
     if (!filter.includeDeleted) {
       records = records.filter((r) => !r.deletedAt && !r.isDeleted);
-    }
-
-    if (filter.userId && filter.accountId) {
-      records = records.filter((r) => r.userId === filter.userId);
     }
 
     if (filter.categoryId) {
@@ -109,22 +149,42 @@ export class DexieTransactionRepository implements TransactionRepository {
   }
 
   public async save(transaction: Transaction): Promise<void> {
+    const validatedUserId = validateUserId(transaction.userId);
+    const existing = await this.database.transactions.get(transaction.id);
+    if (existing && existing.userId && existing.userId !== validatedUserId) {
+      throw new UnauthorizedEntityAccessError('Transaction', transaction.id);
+    }
     const record = this.toRecord(transaction);
     await this.database.transactions.put(record);
   }
 
   public async saveBatch(transactions: Transaction[]): Promise<void> {
+    for (const t of transactions) {
+      const validatedUserId = validateUserId(t.userId);
+      const existing = await this.database.transactions.get(t.id);
+      if (existing && existing.userId && existing.userId !== validatedUserId) {
+        throw new UnauthorizedEntityAccessError('Transaction', t.id);
+      }
+    }
     const records = transactions.map((t) => this.toRecord(t));
     await this.database.transactions.bulkPut(records);
   }
 
   public async softDelete(
     id: TransactionId,
+    userId: UserId,
     deletedAt: Date = new Date(),
     version?: number
   ): Promise<void> {
+    const validatedUserId = validateUserId(userId);
     const existing = await this.database.transactions.get(id);
-    const newVersion = version ?? (existing ? (existing.version ?? 1) + 1 : 2);
+    if (!existing) {
+      throw new TransactionNotFoundError(id);
+    }
+    if (existing.userId !== validatedUserId) {
+      throw new UnauthorizedEntityAccessError('Transaction', id);
+    }
+    const newVersion = version ?? (existing.version ?? 1) + 1;
     await this.database.transactions.update(id, {
       deletedAt: deletedAt.toISOString(),
       isDeleted: true,
@@ -134,6 +194,10 @@ export class DexieTransactionRepository implements TransactionRepository {
   }
 
   private toDomain(record: LocalTransactionRecord): Transaction {
+    if (!record.userId) {
+      throw new InvalidUserIdError(`Transaction record '${record.id}' is missing a valid userId.`);
+    }
+    const validatedUserId = validateUserId(record.userId);
     const resolvedTitle = record.title || record.description || 'Transaction';
     const resolvedDate = new Date(record.transactionDate || record.date || new Date().toISOString());
     const resolvedDestination = record.destinationAccountId || record.targetAccountId;
@@ -141,7 +205,7 @@ export class DexieTransactionRepository implements TransactionRepository {
 
     return new Transaction({
       id: createTransactionId(record.id),
-      userId: createUserId(record.userId || 'local-user'),
+      userId: validatedUserId,
       type: record.type as TransactionType,
       amountPaise: record.amountPaise ?? record.amountInPaise ?? 0,
       currency: record.currency || 'INR',

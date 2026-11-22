@@ -14,7 +14,7 @@ export class DeleteTransactionUseCase {
   public async execute(transactionIdStr: string, userIdStr: string): Promise<void> {
     const validatedUserId = validateUserId(userIdStr);
     const txId = createTransactionId(transactionIdStr);
-    const existing = await this.transactionRepo.findById(txId);
+    const existing = await this.transactionRepo.findById(txId, validatedUserId);
     if (!existing) {
       throw new TransactionNotFoundError(transactionIdStr);
     }
@@ -46,7 +46,7 @@ export class DeleteTransactionUseCase {
     };
 
     await this.unitOfWork.run(async () => {
-      await this.transactionRepo.softDelete(txId, now, targetVersion);
+      await this.transactionRepo.softDelete(txId, validatedUserId, now, targetVersion);
       await this.syncPort.enqueue(outboxEntry);
     });
   }

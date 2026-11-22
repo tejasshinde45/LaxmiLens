@@ -32,7 +32,7 @@ export class UpdateTransactionUseCase {
   public async execute(dto: UpdateTransactionDTO): Promise<TransactionResponseDTO> {
     const validatedUserId = validateUserId(dto.userId);
     const txId = createTransactionId(dto.id);
-    const existing = await this.transactionRepo.findById(txId);
+    const existing = await this.transactionRepo.findById(txId, validatedUserId);
     if (!existing) {
       throw new TransactionNotFoundError(dto.id);
     }
@@ -50,7 +50,7 @@ export class UpdateTransactionUseCase {
 
     // Validate account if changed
     if (dto.accountId) {
-      const acc = await this.accountRepo.findById(resolvedAccountId);
+      const acc = await this.accountRepo.findById(resolvedAccountId, validatedUserId);
       if (!acc) throw new AccountNotFoundError(dto.accountId);
       if (acc.userId !== validatedUserId) {
         throw new UnauthorizedEntityAccessError('Account', dto.accountId);
@@ -63,7 +63,7 @@ export class UpdateTransactionUseCase {
       if (!destId || destId === resolvedAccountId) {
         throw new TransferAccountMismatchError();
       }
-      const destAcc = await this.accountRepo.findById(destId);
+      const destAcc = await this.accountRepo.findById(destId, validatedUserId);
       if (!destAcc) throw new AccountNotFoundError(destId);
       if (destAcc.userId !== validatedUserId) {
         throw new UnauthorizedEntityAccessError('Account', destId);
@@ -79,7 +79,7 @@ export class UpdateTransactionUseCase {
       : existing.categoryId;
 
     if (resolvedCategoryId && existing.type !== 'transfer') {
-      const cat = await this.categoryRepo.findById(resolvedCategoryId);
+      const cat = await this.categoryRepo.findById(resolvedCategoryId, validatedUserId);
       if (!cat) throw new CategoryNotFoundError(resolvedCategoryId);
       if (cat.userId !== validatedUserId && !cat.isDefault) {
         throw new UnauthorizedEntityAccessError('Category', resolvedCategoryId);

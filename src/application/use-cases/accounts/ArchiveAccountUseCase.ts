@@ -11,18 +11,16 @@ export class ArchiveAccountUseCase {
     private readonly unitOfWork?: UnitOfWork
   ) {}
 
-  public async execute(accountIdStr: string, userIdStr?: string): Promise<void> {
+  public async execute(accountIdStr: string, userIdStr: string): Promise<void> {
     const accountId = createAccountId(accountIdStr);
-    const existing = await this.accountRepo.findById(accountId);
+    const validatedUserId = validateUserId(userIdStr);
+    const existing = await this.accountRepo.findById(accountId, validatedUserId);
     if (!existing) {
       throw new AccountNotFoundError(accountIdStr);
     }
 
-    if (userIdStr !== undefined) {
-      const validatedUserId = validateUserId(userIdStr);
-      if (existing.userId !== validatedUserId) {
-        throw new UnauthorizedEntityAccessError('Account', accountIdStr);
-      }
+    if (existing.userId !== validatedUserId) {
+      throw new UnauthorizedEntityAccessError('Account', accountIdStr);
     }
 
     const newVersion = existing.version + 1;
@@ -42,7 +40,7 @@ export class ArchiveAccountUseCase {
     };
 
     const persist = async () => {
-      await this.accountRepo.archive(accountId, newVersion);
+      await this.accountRepo.archive(accountId, validatedUserId, newVersion);
       await this.syncPort.enqueue(outboxEntry);
     };
 

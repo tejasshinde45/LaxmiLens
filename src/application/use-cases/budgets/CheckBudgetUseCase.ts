@@ -1,6 +1,6 @@
 import { BudgetRepository } from '@/domain/repositories/BudgetRepository';
 import { TransactionRepository } from '@/domain/repositories/TransactionRepository';
-import { createCategoryId } from '@/domain/value-objects/Identifiers';
+import { createCategoryId, validateUserId } from '@/domain/value-objects/Identifiers';
 import { Money } from '@/domain/value-objects/Money';
 
 export interface BudgetStatusDTO {
@@ -20,13 +20,14 @@ export class CheckBudgetUseCase {
     private readonly transactionRepo: TransactionRepository
   ) {}
 
-  public async execute(categoryIdStr: string, period: string): Promise<BudgetStatusDTO | null> {
+  public async execute(categoryIdStr: string, period: string, userIdStr: string): Promise<BudgetStatusDTO | null> {
     const categoryId = createCategoryId(categoryIdStr);
+    const userId = validateUserId(userIdStr);
     const budget = await this.budgetRepo.findByCategoryAndPeriod(categoryId, period);
     if (!budget) return null;
 
-    // Filter transactions for this category and month
-    const transactions = await this.transactionRepo.findMany({ categoryId });
+    // Filter transactions for this category and month, scoped strictly to the authenticated user
+    const transactions = await this.transactionRepo.findMany({ userId, categoryId });
     let spentPaise = 0;
 
     for (const tx of transactions) {

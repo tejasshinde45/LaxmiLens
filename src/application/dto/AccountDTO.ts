@@ -1,5 +1,5 @@
 export interface CreateAccountDTO {
-  userId?: string;
+  userId: string;
   name: string;
   accountType?: 'cash' | 'bank' | 'savings' | 'credit_card' | 'wallet' | 'other';
   openingBalancePaise?: number;
@@ -16,7 +16,7 @@ export interface CreateAccountDTO {
 
 export interface UpdateAccountDTO {
   id: string;
-  userId?: string;
+  userId: string;
   name?: string;
   accountType?: 'cash' | 'bank' | 'savings' | 'credit_card' | 'wallet' | 'other';
   institutionName?: string;

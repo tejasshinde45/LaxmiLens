@@ -1,5 +1,5 @@
 export interface CreateCategoryDTO {
-  userId?: string;
+  userId: string;
   name: string;
   type: 'income' | 'expense';
   icon?: string;
@@ -9,6 +9,7 @@ export interface CreateCategoryDTO {
 
 export interface UpdateCategoryDTO {
   id: string;
+  userId: string;
   name?: string;
   icon?: string;
   color?: string;

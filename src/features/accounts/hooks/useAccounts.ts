@@ -141,9 +141,10 @@ export function useAccounts() {
   // Update Account Mutation
   const updateAccountMutation = useMutation({
     mutationFn: async (values: EditAccountFormValues) => {
+      if (!user?.id) throw new Error('You must be signed in to update an account.');
       return updateAccountUseCase.execute({
         id: values.id,
-        userId: user?.id,
+        userId: user.id,
         name: values.name.trim(),
         accountType: values.accountType,
         institutionName: values.institutionName?.trim() || undefined,
@@ -166,7 +167,8 @@ export function useAccounts() {
   // Archive Account Mutation
   const archiveAccountMutation = useMutation({
     mutationFn: async (accountId: string) => {
-      return archiveAccountUseCase.execute(accountId, user?.id);
+      if (!user?.id) throw new Error('You must be signed in to archive an account.');
+      return archiveAccountUseCase.execute(accountId, user.id);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey });
@@ -182,7 +184,8 @@ export function useAccounts() {
   // Restore Account Mutation
   const restoreAccountMutation = useMutation({
     mutationFn: async (accountId: string) => {
-      return restoreAccountUseCase.execute(accountId, user?.id);
+      if (!user?.id) throw new Error('You must be signed in to restore an account.');
+      return restoreAccountUseCase.execute(accountId, user.id);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey });

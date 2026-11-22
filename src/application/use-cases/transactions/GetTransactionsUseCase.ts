@@ -4,7 +4,7 @@ import { TransactionResponseDTO } from '@/application/dto/TransactionDTO';
 export class GetTransactionsUseCase {
   constructor(private readonly transactionRepo: TransactionRepository) {}
 
-  public async execute(filter: TransactionFilter = {}): Promise<TransactionResponseDTO[]> {
+  public async execute(filter: TransactionFilter): Promise<TransactionResponseDTO[]> {
     const transactions = await this.transactionRepo.findMany(filter);
 
     return transactions.map((tx) => ({

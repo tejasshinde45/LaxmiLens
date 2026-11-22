@@ -169,6 +169,22 @@ export class LaxmiLensDB extends Dexie {
             }
           });
       });
+
+    // Version 4: User-Scoped Local Repository Isolation (Phase 2D.7.2)
+    this.version(4)
+      .stores({
+        accounts:
+          'id, userId, accountType, isArchived, version, createdAt, [userId+id], [userId+isArchived]',
+        transactions:
+          'id, userId, type, accountId, destinationAccountId, categoryId, transactionDate, deletedAt, idempotencyKey, version, [accountId+transactionDate], [userId+transactionDate], [userId+id], [userId+accountId]',
+        categories:
+          'id, userId, type, isArchived, isDefault, version, [userId+id], [userId+type]'
+      })
+      .upgrade((_tx) => {
+        // Compound indexes are built automatically by Dexie during store upgrade.
+        // All existing historical records across all accounts, transactions, and categories
+        // are preserved strictly without data loss, re-assignment, or partition clearing.
+      });
   }
 }
 

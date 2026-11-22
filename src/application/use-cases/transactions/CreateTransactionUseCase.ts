@@ -17,6 +17,7 @@ import {
   CategoryTypeMismatchError,
   TransferAccountMismatchError,
   DuplicateTransactionError,
+  InvalidUserIdError,
   UnauthorizedEntityAccessError
 } from '@/domain/errors/DomainErrors';
 
@@ -30,14 +31,18 @@ export class CreateTransactionUseCase {
   ) {}
 
   public async execute(dto: CreateTransactionDTO): Promise<TransactionResponseDTO> {
+    if (!dto.userId) {
+      throw new InvalidUserIdError('A valid user UUID is required to create a transaction.');
+    }
+    const userId = validateUserId(dto.userId);
+
     const sourceAccountId = createAccountId(dto.accountId);
-    const sourceAccount = await this.accountRepo.findById(sourceAccountId);
+    const sourceAccount = await this.accountRepo.findById(sourceAccountId, userId);
     if (!sourceAccount) {
       throw new AccountNotFoundError(dto.accountId);
     }
 
-    // Ownership consistency check: validate UUID and ensure entity ownership agreement
-    const userId = dto.userId ? validateUserId(dto.userId) : validateUserId(sourceAccount.userId);
+    // Ownership consistency check: ensure entity ownership agreement
     if (sourceAccount.userId !== userId) {
       throw new UnauthorizedEntityAccessError('Account', dto.accountId);
     }
@@ -59,7 +64,7 @@ export class CreateTransactionUseCase {
       if (!destinationAccountId || destinationAccountId === dto.accountId) {
         throw new TransferAccountMismatchError();
       }
-      const destAccount = await this.accountRepo.findById(createAccountId(destinationAccountId));
+      const destAccount = await this.accountRepo.findById(createAccountId(destinationAccountId), userId);
       if (!destAccount) {
         throw new AccountNotFoundError(destinationAccountId);
       }
@@ -73,7 +78,7 @@ export class CreateTransactionUseCase {
     // 3. Validate category if provided
     let categoryId = dto.categoryId;
     if (categoryId && dto.type !== 'transfer') {
-      const category = await this.categoryRepo.findById(createCategoryId(categoryId));
+      const category = await this.categoryRepo.findById(createCategoryId(categoryId), userId);
       if (!category) {
         throw new CategoryNotFoundError(categoryId);
       }

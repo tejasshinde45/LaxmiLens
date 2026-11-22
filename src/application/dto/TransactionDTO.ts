@@ -1,5 +1,5 @@
 export interface CreateTransactionDTO {
-  userId?: string;
+  userId: string;
   type: 'income' | 'expense' | 'transfer';
   amountPaise?: number;
   currency?: string;

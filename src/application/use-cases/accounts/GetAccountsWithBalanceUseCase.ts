@@ -1,6 +1,6 @@
 import { AccountRepository } from '@/domain/repositories/AccountRepository';
 import { TransactionRepository } from '@/domain/repositories/TransactionRepository';
-import { createUserId } from '@/domain/value-objects/Identifiers';
+import { validateUserId } from '@/domain/value-objects/Identifiers';
 import { LedgerRules } from '@/domain/rules/LedgerRules';
 import { AccountWithBalanceDTO } from '@/application/dto/AccountDTO';
 
@@ -11,7 +11,7 @@ export class GetAccountsWithBalanceUseCase {
   ) {}
 
   public async execute(userIdStr: string, includeArchived = true): Promise<AccountWithBalanceDTO[]> {
-    const userId = createUserId(userIdStr);
+    const userId = validateUserId(userIdStr);
     const accounts = await this.accountRepo.findByUserId(userId);
 
     const filtered = includeArchived ? accounts : accounts.filter((a) => !a.isArchived);
@@ -19,7 +19,7 @@ export class GetAccountsWithBalanceUseCase {
     const results: AccountWithBalanceDTO[] = [];
 
     for (const account of filtered) {
-      const transactions = await this.transactionRepo.findByAccount(account.id);
+      const transactions = await this.transactionRepo.findByAccount(account.id, userId);
       const currentBalance = LedgerRules.calculateAccountBalance(
         account.openingBalance,
         account.id,

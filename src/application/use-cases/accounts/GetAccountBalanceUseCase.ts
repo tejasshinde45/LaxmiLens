@@ -1,6 +1,6 @@
 import { AccountRepository } from '@/domain/repositories/AccountRepository';
 import { TransactionRepository } from '@/domain/repositories/TransactionRepository';
-import { createAccountId } from '@/domain/value-objects/Identifiers';
+import { createAccountId, validateUserId } from '@/domain/value-objects/Identifiers';
 import { AccountNotFoundError } from '@/domain/errors/DomainErrors';
 import { LedgerRules } from '@/domain/rules/LedgerRules';
 import { AccountBalanceDTO } from '@/application/dto/AccountDTO';
@@ -11,15 +11,16 @@ export class GetAccountBalanceUseCase {
     private readonly transactionRepo: TransactionRepository
   ) {}
 
-  public async execute(accountIdStr: string): Promise<AccountBalanceDTO> {
+  public async execute(accountIdStr: string, userIdStr: string): Promise<AccountBalanceDTO> {
     const accountId = createAccountId(accountIdStr);
-    const account = await this.accountRepo.findById(accountId);
+    const validatedUserId = validateUserId(userIdStr);
+    const account = await this.accountRepo.findById(accountId, validatedUserId);
     if (!account) {
       throw new AccountNotFoundError(accountIdStr);
     }
 
     // Retrieve ledger transactions for this account (soft-deleted are handled by LedgerRules)
-    const transactions = await this.transactionRepo.findByAccount(accountId);
+    const transactions = await this.transactionRepo.findByAccount(accountId, validatedUserId);
     const currentBalance = LedgerRules.calculateAccountBalance(
       account.openingBalance,
       account.id,

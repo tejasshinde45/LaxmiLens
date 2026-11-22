@@ -10,13 +10,14 @@ import {
 } from '@/domain/value-objects/Identifiers';
 import {
   AccountNotFoundError,
+  InvalidUserIdError,
   TransferAccountMismatchError,
   UnauthorizedEntityAccessError
 } from '@/domain/errors/DomainErrors';
 import { TransactionResponseDTO } from '@/application/dto/TransactionDTO';
 
 export interface ExecuteTransferRequest {
-  userId?: string;
+  userId: string;
   fromAccountId: string;
   toAccountId: string;
   amountInPaise?: number;
@@ -39,14 +40,19 @@ export class ExecuteTransferUseCase {
   ) {}
 
   public async execute(req: ExecuteTransferRequest): Promise<TransactionResponseDTO> {
+    if (!req.userId) {
+      throw new InvalidUserIdError('A valid user UUID is required to execute a transfer.');
+    }
+    const userId = validateUserId(req.userId);
+
     if (req.fromAccountId === req.toAccountId) {
       throw new TransferAccountMismatchError();
     }
 
-    const fromAccount = await this.accountRepo.findById(createAccountId(req.fromAccountId));
+    const fromAccount = await this.accountRepo.findById(createAccountId(req.fromAccountId), userId);
     if (!fromAccount) throw new AccountNotFoundError(req.fromAccountId);
 
-    const toAccount = await this.accountRepo.findById(createAccountId(req.toAccountId));
+    const toAccount = await this.accountRepo.findById(createAccountId(req.toAccountId), userId);
     if (!toAccount) throw new AccountNotFoundError(req.toAccountId);
 
     const amountPaise = req.amountPaise ?? req.amountInPaise ?? 0;
@@ -55,8 +61,7 @@ export class ExecuteTransferUseCase {
     const resolvedNote = req.note ?? req.notes;
     const idempotencyKey = req.idempotencyKey || crypto.randomUUID();
 
-    // Ownership consistency check: ensure userId is valid UUID and both accounts belong to the user
-    const userId = req.userId ? validateUserId(req.userId) : validateUserId(fromAccount.userId);
+    // Ownership consistency check: ensure both accounts belong to the user
     if (fromAccount.userId !== userId) {
       throw new UnauthorizedEntityAccessError('Account', req.fromAccountId);
     }

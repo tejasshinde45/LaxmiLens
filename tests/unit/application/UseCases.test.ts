@@ -27,14 +27,15 @@ import {
 class InMemoryAccountRepository implements AccountRepository {
   private accounts = new Map<string, Account>();
 
-  async findById(id: AccountId): Promise<Account | null> {
-    return this.accounts.get(id) || null;
+  async findById(id: AccountId, userId: UserId): Promise<Account | null> {
+    const acc = this.accounts.get(id);
+    return acc && acc.userId === userId ? acc : null;
   }
   async findByUserId(userId: UserId): Promise<Account[]> {
     return Array.from(this.accounts.values()).filter((a) => a.userId === userId);
   }
-  async findAll(): Promise<Account[]> {
-    return Array.from(this.accounts.values());
+  async findAll(userId: UserId): Promise<Account[]> {
+    return this.findByUserId(userId);
   }
   async save(account: Account): Promise<void> {
     this.accounts.set(account.id, account);
@@ -42,9 +43,9 @@ class InMemoryAccountRepository implements AccountRepository {
   async saveBatch(accounts: Account[]): Promise<void> {
     accounts.forEach((a) => this.accounts.set(a.id, a));
   }
-  async archive(id: AccountId, version?: number): Promise<void> {
+  async archive(id: AccountId, userId: UserId, version?: number): Promise<void> {
     const acc = this.accounts.get(id);
-    if (acc) {
+    if (acc && acc.userId === userId) {
       this.accounts.set(
         id,
         new Account({
@@ -56,9 +57,9 @@ class InMemoryAccountRepository implements AccountRepository {
       );
     }
   }
-  async restore(id: AccountId, version?: number): Promise<void> {
+  async restore(id: AccountId, userId: UserId, version?: number): Promise<void> {
     const acc = this.accounts.get(id);
-    if (acc) {
+    if (acc && acc.userId === userId) {
       this.accounts.set(
         id,
         new Account({
@@ -75,14 +76,16 @@ class InMemoryAccountRepository implements AccountRepository {
 class InMemoryCategoryRepository implements CategoryRepository {
   private categories = new Map<string, Category>();
 
-  async findById(id: CategoryId): Promise<Category | null> {
-    return this.categories.get(id) || null;
+  async findById(id: CategoryId, userId: UserId): Promise<Category | null> {
+    const cat = this.categories.get(id);
+    if (!cat) return null;
+    return cat.userId === userId || cat.isDefault ? cat : null;
   }
   async findByUserId(userId: UserId): Promise<Category[]> {
-    return Array.from(this.categories.values()).filter((c) => c.userId === userId);
+    return Array.from(this.categories.values()).filter((c) => c.userId === userId || c.isDefault);
   }
-  async findAll(): Promise<Category[]> {
-    return Array.from(this.categories.values());
+  async findAll(userId: UserId): Promise<Category[]> {
+    return this.findByUserId(userId);
   }
   async save(category: Category): Promise<void> {
     this.categories.set(category.id, category);
@@ -90,9 +93,9 @@ class InMemoryCategoryRepository implements CategoryRepository {
   async saveBatch(categories: Category[]): Promise<void> {
     categories.forEach((c) => this.categories.set(c.id, c));
   }
-  async archive(id: CategoryId): Promise<void> {
+  async archive(id: CategoryId, userId: UserId): Promise<void> {
     const cat = this.categories.get(id);
-    if (cat) {
+    if (cat && cat.userId === userId) {
       this.categories.set(
         id,
         new Category({
@@ -111,20 +114,21 @@ class InMemoryCategoryRepository implements CategoryRepository {
 class InMemoryTransactionRepository implements TransactionRepository {
   private transactions = new Map<string, Transaction>();
 
-  async findById(id: TransactionId): Promise<Transaction | null> {
-    return this.transactions.get(id) || null;
+  async findById(id: TransactionId, userId: UserId): Promise<Transaction | null> {
+    const tx = this.transactions.get(id);
+    return tx && tx.userId === userId ? tx : null;
   }
-  async findByIdempotencyKey(key: string, userId?: UserId): Promise<Transaction | null> {
+  async findByIdempotencyKey(key: string, userId: UserId): Promise<Transaction | null> {
     const all = Array.from(this.transactions.values());
-    return all.find((t) => t.idempotencyKey === key && (!userId || t.userId === userId)) || null;
+    return all.find((t) => t.idempotencyKey === key && t.userId === userId) || null;
   }
-  async findByAccount(accountId: AccountId): Promise<Transaction[]> {
+  async findByAccount(accountId: AccountId, userId: UserId): Promise<Transaction[]> {
     return Array.from(this.transactions.values()).filter(
-      (t) => t.accountId === accountId || t.destinationAccountId === accountId
+      (t) => (t.accountId === accountId || t.destinationAccountId === accountId) && t.userId === userId
     );
   }
   async findMany(filter: TransactionFilter): Promise<Transaction[]> {
-    let result = Array.from(this.transactions.values());
+    let result = Array.from(this.transactions.values()).filter((t) => t.userId === filter.userId);
     if (!filter.includeDeleted) {
       result = result.filter((t) => !t.isDeleted);
     }
@@ -141,9 +145,9 @@ class InMemoryTransactionRepository implements TransactionRepository {
   async saveBatch(transactions: Transaction[]): Promise<void> {
     transactions.forEach((t) => this.transactions.set(t.id, t));
   }
-  async softDelete(id: TransactionId, deletedAt: Date = new Date(), version?: number): Promise<void> {
+  async softDelete(id: TransactionId, userId: UserId, deletedAt: Date = new Date(), version?: number): Promise<void> {
     const tx = this.transactions.get(id);
-    if (tx) {
+    if (tx && tx.userId === userId) {
       this.transactions.set(id, tx.markDeleted(deletedAt, version));
     }
   }
@@ -206,13 +210,13 @@ describe('Core Financial Use Cases', () => {
     expect(acc.openingBalanceFormatted).toBe('₹5,000.00');
 
     // Initial derived balance should equal opening balance
-    const balanceBefore = await getBalance.execute(acc.id);
+    const balanceBefore = await getBalance.execute(acc.id, testUserId);
     expect(balanceBefore.currentBalancePaise).toBe(500000);
     expect(balanceBefore.currentBalanceFormatted).toBe('₹5,000.00');
 
     // Archive account
-    await archiveAccount.execute(acc.id);
-    const balanceAfterArchive = await getBalance.execute(acc.id);
+    await archiveAccount.execute(acc.id, testUserId);
+    const balanceAfterArchive = await getBalance.execute(acc.id, testUserId);
     expect(balanceAfterArchive.isArchived).toBe(true);
   });
 
@@ -286,6 +290,7 @@ describe('Core Financial Use Cases', () => {
     const idempotencyKey = 'fixed-key-123';
 
     await createTransaction.execute({
+      userId: testUserId,
       type: 'expense',
       amountPaise: 10000,
       accountId: acc.id,
@@ -296,6 +301,7 @@ describe('Core Financial Use Cases', () => {
     // Re-executing with the exact same idempotency key must reject
     await expect(
       createTransaction.execute({
+        userId: testUserId,
         type: 'expense',
         amountPaise: 10000,
         accountId: acc.id,
@@ -328,6 +334,7 @@ describe('Core Financial Use Cases', () => {
 
     // Expense ₹300 (30000 paise)
     const tx = await createTransaction.execute({
+      userId: testUserId,
       type: 'expense',
       amountPaise: 30000,
       accountId: acc.id,
@@ -335,18 +342,18 @@ describe('Core Financial Use Cases', () => {
     });
 
     // Balance after expense = ₹700 (70000 paise)
-    const balanceBeforeDelete = await getBalance.execute(acc.id);
+    const balanceBeforeDelete = await getBalance.execute(acc.id, testUserId);
     expect(balanceBeforeDelete.currentBalancePaise).toBe(70000);
 
     // Soft delete transaction
     await deleteTransaction.execute(tx.id, testUserId);
 
     // Active transactions list must not contain soft-deleted transaction by default
-    const activeTransactions = await getTransactions.execute({ accountId: acc.id as any });
+    const activeTransactions = await getTransactions.execute({ userId: testUserId as any, accountId: acc.id as any });
     expect(activeTransactions.length).toBe(0);
 
     // Balance after deletion recalculates back to ₹1,000 (100000 paise)
-    const balanceAfterDelete = await getBalance.execute(acc.id);
+    const balanceAfterDelete = await getBalance.execute(acc.id, testUserId);
     expect(balanceAfterDelete.currentBalancePaise).toBe(100000);
     expect(balanceAfterDelete.currentBalanceFormatted).toBe('₹1,000.00');
   });

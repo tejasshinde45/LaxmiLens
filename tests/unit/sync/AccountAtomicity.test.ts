@@ -38,16 +38,21 @@ class TransactionalInMemoryAccountRepository implements AccountRepository {
     this.accounts = new Map(this.snapshot);
   }
 
-  async findById(id: AccountId): Promise<Account | null> {
-    return this.accounts.get(id) || null;
+  async findById(id: AccountId, userId?: UserId): Promise<Account | null> {
+    const acc = this.accounts.get(id);
+    if (!acc) return null;
+    if (userId && acc.userId !== userId) {
+      throw new UnauthorizedEntityAccessError('Account', id);
+    }
+    return acc;
   }
 
   async findByUserId(userId: UserId): Promise<Account[]> {
     return Array.from(this.accounts.values()).filter((a) => a.userId === userId);
   }
 
-  async findAll(): Promise<Account[]> {
-    return Array.from(this.accounts.values());
+  async findAll(userId: UserId): Promise<Account[]> {
+    return this.findByUserId(userId);
   }
 
   async save(account: Account): Promise<void> {
@@ -58,7 +63,7 @@ class TransactionalInMemoryAccountRepository implements AccountRepository {
     accounts.forEach((a) => this.accounts.set(a.id, a));
   }
 
-  async archive(id: AccountId, version?: number): Promise<void> {
+  async archive(id: AccountId, userId: UserId, version?: number): Promise<void> {
     const acc = this.accounts.get(id);
     if (acc) {
       this.accounts.set(
@@ -73,7 +78,7 @@ class TransactionalInMemoryAccountRepository implements AccountRepository {
     }
   }
 
-  async restore(id: AccountId, version?: number): Promise<void> {
+  async restore(id: AccountId, userId: UserId, version?: number): Promise<void> {
     const acc = this.accounts.get(id);
     if (acc) {
       this.accounts.set(

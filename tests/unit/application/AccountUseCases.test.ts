@@ -18,14 +18,19 @@ import { AccountNotFoundError, UnauthorizedEntityAccessError } from '@/domain/er
 class InMemoryAccountRepository implements AccountRepository {
   public accounts = new Map<string, Account>();
 
-  async findById(id: AccountId): Promise<Account | null> {
-    return this.accounts.get(id) || null;
+  async findById(id: AccountId, userId?: UserId): Promise<Account | null> {
+    const acc = this.accounts.get(id);
+    if (!acc) return null;
+    if (userId && acc.userId !== userId) {
+      throw new UnauthorizedEntityAccessError('Account', id);
+    }
+    return acc;
   }
   async findByUserId(userId: UserId): Promise<Account[]> {
     return Array.from(this.accounts.values()).filter((a) => a.userId === userId);
   }
-  async findAll(): Promise<Account[]> {
-    return Array.from(this.accounts.values());
+  async findAll(userId: UserId): Promise<Account[]> {
+    return this.findByUserId(userId);
   }
   async save(account: Account): Promise<void> {
     this.accounts.set(account.id, account);
@@ -33,9 +38,9 @@ class InMemoryAccountRepository implements AccountRepository {
   async saveBatch(accounts: Account[]): Promise<void> {
     accounts.forEach((a) => this.accounts.set(a.id, a));
   }
-  async archive(id: AccountId, version?: number): Promise<void> {
+  async archive(id: AccountId, userId: UserId, version?: number): Promise<void> {
     const acc = this.accounts.get(id);
-    if (acc) {
+    if (acc && acc.userId === userId) {
       this.accounts.set(
         id,
         new Account({
@@ -47,9 +52,9 @@ class InMemoryAccountRepository implements AccountRepository {
       );
     }
   }
-  async restore(id: AccountId, version?: number): Promise<void> {
+  async restore(id: AccountId, userId: UserId, version?: number): Promise<void> {
     const acc = this.accounts.get(id);
-    if (acc) {
+    if (acc && acc.userId === userId) {
       this.accounts.set(
         id,
         new Account({
@@ -67,23 +72,24 @@ class InMemoryAccountRepository implements AccountRepository {
 class InMemoryTransactionRepository implements TransactionRepository {
   public transactions = new Map<string, Transaction>();
 
-  async findById(id: TransactionId): Promise<Transaction | null> {
-    return this.transactions.get(id) || null;
+  async findById(id: TransactionId, userId: UserId): Promise<Transaction | null> {
+    const tx = this.transactions.get(id);
+    return tx && tx.userId === userId ? tx : null;
   }
-  async findByIdempotencyKey(key: string, userId?: UserId): Promise<Transaction | null> {
+  async findByIdempotencyKey(key: string, userId: UserId): Promise<Transaction | null> {
     return (
       Array.from(this.transactions.values()).find(
-        (t) => t.idempotencyKey === key && (!userId || t.userId === userId)
+        (t) => t.idempotencyKey === key && t.userId === userId
       ) || null
     );
   }
-  async findByAccount(accountId: AccountId): Promise<Transaction[]> {
+  async findByAccount(accountId: AccountId, userId: UserId): Promise<Transaction[]> {
     return Array.from(this.transactions.values()).filter(
-      (t) => t.accountId === accountId || t.destinationAccountId === accountId
+      (t) => (t.accountId === accountId || t.destinationAccountId === accountId) && t.userId === userId
     );
   }
   async findMany(filter: TransactionFilter): Promise<Transaction[]> {
-    let result = Array.from(this.transactions.values());
+    let result = Array.from(this.transactions.values()).filter((t) => t.userId === filter.userId);
     if (!filter.includeDeleted) {
       result = result.filter((t) => !t.isDeleted);
     }
@@ -100,10 +106,10 @@ class InMemoryTransactionRepository implements TransactionRepository {
   async saveBatch(transactions: Transaction[]): Promise<void> {
     transactions.forEach((t) => this.transactions.set(t.id, t));
   }
-  async softDelete(id: TransactionId, deletedAt: Date = new Date()): Promise<void> {
+  async softDelete(id: TransactionId, userId: UserId, deletedAt: Date = new Date(), version?: number): Promise<void> {
     const tx = this.transactions.get(id);
-    if (tx) {
-      this.transactions.set(id, tx.markDeleted(deletedAt));
+    if (tx && tx.userId === userId) {
+      this.transactions.set(id, tx.markDeleted(deletedAt, version));
     }
   }
 }
@@ -196,6 +202,7 @@ describe('Account Management Use Cases (Milestone 5.1)', () => {
 
       const updated = await updateUseCase.execute({
         id: created.id,
+        userId: testUserId,
         name: 'SBI Main Savings',
         accountType: 'savings',
         institutionName: 'State Bank of India',
@@ -222,6 +229,7 @@ describe('Account Management Use Cases (Milestone 5.1)', () => {
       await expect(
         updateUseCase.execute({
           id: 'non-existent-id' as AccountId,
+          userId: testUserId,
           name: 'Ghost Account',
           accountType: 'cash'
         })
@@ -244,14 +252,14 @@ describe('Account Management Use Cases (Milestone 5.1)', () => {
       });
 
       // Archive
-      await archiveUseCase.execute(created.id);
-      const archived = await accountRepo.findById(created.id);
+      await archiveUseCase.execute(created.id, testUserId);
+      const archived = await accountRepo.findById(created.id, testUserId);
       expect(archived?.isArchived).toBe(true);
       expect(archived?.version).toBe(2);
 
       // Restore
-      await restoreUseCase.execute(created.id);
-      const restored = await accountRepo.findById(created.id);
+      await restoreUseCase.execute(created.id, testUserId);
+      const restored = await accountRepo.findById(created.id, testUserId);
       expect(restored?.isArchived).toBe(false);
       expect(restored?.version).toBe(3);
 
@@ -266,7 +274,7 @@ describe('Account Management Use Cases (Milestone 5.1)', () => {
 
     it('throws AccountNotFoundError when restoring non-existent account', async () => {
       const restoreUseCase = new RestoreAccountUseCase(accountRepo, syncPort);
-      await expect(restoreUseCase.execute('missing-id' as AccountId)).rejects.toThrow(
+      await expect(restoreUseCase.execute('missing-id' as AccountId, testUserId)).rejects.toThrow(
         AccountNotFoundError
       );
     });
@@ -348,7 +356,7 @@ describe('Account Management Use Cases (Milestone 5.1)', () => {
         currency: 'INR'
       });
 
-      await archiveUseCase.execute(toArchiveAcc.id);
+      await archiveUseCase.execute(toArchiveAcc.id, testUserId);
 
       const withoutArchived = await getAccountsWithBalance.execute(testUserId, false);
       expect(withoutArchived.length).toBe(1);
