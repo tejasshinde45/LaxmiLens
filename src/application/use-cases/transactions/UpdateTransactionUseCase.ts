@@ -30,17 +30,15 @@ export class UpdateTransactionUseCase {
   ) {}
 
   public async execute(dto: UpdateTransactionDTO): Promise<TransactionResponseDTO> {
+    const validatedUserId = validateUserId(dto.userId);
     const txId = createTransactionId(dto.id);
     const existing = await this.transactionRepo.findById(txId);
     if (!existing) {
       throw new TransactionNotFoundError(dto.id);
     }
 
-    if (dto.userId !== undefined) {
-      const validatedUserId = validateUserId(dto.userId);
-      if (existing.userId !== validatedUserId) {
-        throw new UnauthorizedEntityAccessError('Transaction', dto.id);
-      }
+    if (existing.userId !== validatedUserId) {
+      throw new UnauthorizedEntityAccessError('Transaction', dto.id);
     }
 
     const resolvedAmountPaise = dto.amountPaise ?? dto.amountInPaise ?? existing.amountPaise;
@@ -54,7 +52,7 @@ export class UpdateTransactionUseCase {
     if (dto.accountId) {
       const acc = await this.accountRepo.findById(resolvedAccountId);
       if (!acc) throw new AccountNotFoundError(dto.accountId);
-      if (acc.userId !== existing.userId) {
+      if (acc.userId !== validatedUserId) {
         throw new UnauthorizedEntityAccessError('Account', dto.accountId);
       }
     }
@@ -67,7 +65,7 @@ export class UpdateTransactionUseCase {
       }
       const destAcc = await this.accountRepo.findById(destId);
       if (!destAcc) throw new AccountNotFoundError(destId);
-      if (destAcc.userId !== existing.userId) {
+      if (destAcc.userId !== validatedUserId) {
         throw new UnauthorizedEntityAccessError('Account', destId);
       }
       resolvedDestinationId = destId;
@@ -83,7 +81,7 @@ export class UpdateTransactionUseCase {
     if (resolvedCategoryId && existing.type !== 'transfer') {
       const cat = await this.categoryRepo.findById(resolvedCategoryId);
       if (!cat) throw new CategoryNotFoundError(resolvedCategoryId);
-      if (cat.userId !== existing.userId && !cat.isDefault) {
+      if (cat.userId !== validatedUserId && !cat.isDefault) {
         throw new UnauthorizedEntityAccessError('Category', resolvedCategoryId);
       }
       if (cat.type !== existing.type) {

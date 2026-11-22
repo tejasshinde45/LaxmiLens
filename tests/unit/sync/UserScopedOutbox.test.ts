@@ -982,6 +982,133 @@ describe('User-Scoped Outbox Foundation & Hardening (Phase 2D.7.1 & 2D.7.1.1)', 
       expect(records).toHaveLength(0);
     });
 
+    it('DeleteTransactionUseCase cannot proceed without a valid authenticated user ID', async () => {
+      const txA = new Transaction({
+        id: createTransactionId('tx-1'),
+        userId: userA,
+        type: 'expense',
+        amountPaise: 5000,
+        currency: 'INR',
+        accountId: 'acc-1',
+        title: 'Coffee',
+        transactionDate: new Date(),
+        deletedAt: null,
+        version: 1,
+        idempotencyKey: 'idemp-tx-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
+      transactions.set(txA.id, txA);
+
+      const deleteTxUseCase = new DeleteTransactionUseCase(
+        mockTxRepo,
+        outboxManager,
+        mockUnitOfWork
+      );
+
+      await expect(deleteTxUseCase.execute(txA.id, '')).rejects.toThrow(InvalidUserIdError);
+      await expect(deleteTxUseCase.execute(txA.id, 'not-a-uuid')).rejects.toThrow(InvalidUserIdError);
+      await expect(deleteTxUseCase.execute(txA.id, '   ')).rejects.toThrow(InvalidUserIdError);
+
+      expect(transactions.get(txA.id)?.isDeleted).toBe(false);
+      expect(records).toHaveLength(0);
+    });
+
+    it('UpdateTransactionUseCase cannot proceed without a valid authenticated user ID', async () => {
+      const txA = new Transaction({
+        id: createTransactionId('tx-1'),
+        userId: userA,
+        type: 'expense',
+        amountPaise: 5000,
+        currency: 'INR',
+        accountId: 'acc-1',
+        title: 'Coffee',
+        transactionDate: new Date(),
+        deletedAt: null,
+        version: 1,
+        idempotencyKey: 'idemp-tx-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
+      transactions.set(txA.id, txA);
+
+      const updateTxUseCase = new UpdateTransactionUseCase(
+        mockTxRepo,
+        mockAccountRepo,
+        mockCategoryRepo,
+        outboxManager,
+        mockUnitOfWork
+      );
+
+      await expect(
+        updateTxUseCase.execute({
+          id: txA.id,
+          userId: '',
+          title: 'New Title'
+        })
+      ).rejects.toThrow(InvalidUserIdError);
+
+      await expect(
+        updateTxUseCase.execute({
+          id: txA.id,
+          userId: 'bad-uuid',
+          title: 'New Title'
+        })
+      ).rejects.toThrow(InvalidUserIdError);
+
+      expect(transactions.get(txA.id)?.title).toBe('Coffee');
+      expect(records).toHaveLength(0);
+    });
+
+    it('UpdateTransactionUseCase permits update when category is a valid system default category', async () => {
+      const defaultCategory = new Category({
+        id: createCategoryId('cat-default-1'),
+        userId: 'system-default-user',
+        name: 'Food & Dining',
+        type: 'expense',
+        isDefault: true,
+        isArchived: false,
+        version: 1
+      });
+      categories.set(defaultCategory.id, defaultCategory);
+
+      const txA = new Transaction({
+        id: createTransactionId('tx-1'),
+        userId: userA,
+        type: 'expense',
+        amountPaise: 5000,
+        currency: 'INR',
+        accountId: 'acc-1',
+        title: 'Dinner',
+        transactionDate: new Date(),
+        deletedAt: null,
+        version: 1,
+        idempotencyKey: 'idemp-tx-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
+      transactions.set(txA.id, txA);
+
+      const updateTxUseCase = new UpdateTransactionUseCase(
+        mockTxRepo,
+        mockAccountRepo,
+        mockCategoryRepo,
+        outboxManager,
+        mockUnitOfWork
+      );
+
+      const result = await updateTxUseCase.execute({
+        id: txA.id,
+        userId: userA,
+        categoryId: defaultCategory.id
+      });
+
+      expect(result.categoryId).toBe(defaultCategory.id);
+      expect(transactions.get(txA.id)?.categoryId).toBe(defaultCategory.id);
+      expect(records).toHaveLength(1);
+      expect(records[0].userId).toBe(userA);
+    });
+
     it('CreateAccountUseCase rolls back entity save when outbox enqueue fails', async () => {
       const failingSyncPort = {
         enqueue: vi.fn().mockRejectedValue(new Error('Simulated outbox disk failure')),

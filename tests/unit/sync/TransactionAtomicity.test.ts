@@ -505,6 +505,7 @@ describe('Phase 2D.2: Transaction Foundation & Data Integrity Remediation', () =
 
       const updated = await updateTx.execute({
         id: created.id,
+        userId: testUserId,
         title: 'Updated Title',
         amountPaise: 15000
       });
@@ -557,6 +558,7 @@ describe('Phase 2D.2: Transaction Foundation & Data Integrity Remediation', () =
       await expect(
         updateTx.execute({
           id: created.id,
+          userId: testUserId,
           title: 'Failed Update Title',
           amountPaise: 99999
         })
@@ -582,6 +584,7 @@ describe('Phase 2D.2: Transaction Foundation & Data Integrity Remediation', () =
       await expect(
         updateTx.execute({
           id: '00000000-0000-4000-8000-000000000000',
+          userId: testUserId,
           title: 'Ghost'
         })
       ).rejects.toThrow(TransactionNotFoundError);
@@ -607,7 +610,7 @@ describe('Phase 2D.2: Transaction Foundation & Data Integrity Remediation', () =
         title: 'Books'
       });
 
-      await deleteTx.execute(created.id);
+      await deleteTx.execute(created.id, testUserId);
 
       // Verify soft deletion in repo (record is NOT deleted from storage)
       const inRepo = await txRepo.findById(createTransactionId(created.id));
@@ -643,11 +646,11 @@ describe('Phase 2D.2: Transaction Foundation & Data Integrity Remediation', () =
         title: 'Supplies'
       });
 
-      await deleteTx.execute(created.id);
+      await deleteTx.execute(created.id, testUserId);
       expect(syncPort.enqueued.length).toBe(2);
 
       // Second delete execution must no-op without re-incrementing or re-enqueueing
-      await deleteTx.execute(created.id);
+      await deleteTx.execute(created.id, testUserId);
       expect(syncPort.enqueued.length).toBe(2);
 
       const inRepo = await txRepo.findById(createTransactionId(created.id));
@@ -674,7 +677,7 @@ describe('Phase 2D.2: Transaction Foundation & Data Integrity Remediation', () =
 
       syncPort.shouldFail = true;
 
-      await expect(deleteTx.execute(created.id)).rejects.toThrow('Simulated outbox enqueue failure');
+      await expect(deleteTx.execute(created.id, testUserId)).rejects.toThrow('Simulated outbox enqueue failure');
 
       // Verify transaction remains active at version 1 in repo
       const inRepo = await txRepo.findById(createTransactionId(created.id));

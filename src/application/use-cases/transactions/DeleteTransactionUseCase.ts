@@ -11,18 +11,16 @@ export class DeleteTransactionUseCase {
     private readonly unitOfWork: UnitOfWork
   ) {}
 
-  public async execute(transactionIdStr: string, userIdStr?: string): Promise<void> {
+  public async execute(transactionIdStr: string, userIdStr: string): Promise<void> {
+    const validatedUserId = validateUserId(userIdStr);
     const txId = createTransactionId(transactionIdStr);
     const existing = await this.transactionRepo.findById(txId);
     if (!existing) {
       throw new TransactionNotFoundError(transactionIdStr);
     }
 
-    if (userIdStr !== undefined) {
-      const validatedUserId = validateUserId(userIdStr);
-      if (existing.userId !== validatedUserId) {
-        throw new UnauthorizedEntityAccessError('Transaction', transactionIdStr);
-      }
+    if (existing.userId !== validatedUserId) {
+      throw new UnauthorizedEntityAccessError('Transaction', transactionIdStr);
     }
 
     if (existing.isDeleted) {

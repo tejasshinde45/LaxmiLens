@@ -339,7 +339,7 @@ describe('Core Financial Use Cases', () => {
     expect(balanceBeforeDelete.currentBalancePaise).toBe(70000);
 
     // Soft delete transaction
-    await deleteTransaction.execute(tx.id);
+    await deleteTransaction.execute(tx.id, testUserId);
 
     // Active transactions list must not contain soft-deleted transaction by default
     const activeTransactions = await getTransactions.execute({ accountId: acc.id as any });
