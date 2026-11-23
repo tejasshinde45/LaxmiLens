@@ -24,12 +24,15 @@ export class DexieCategoryRepository implements CategoryRepository {
     if (!record) return null;
 
     const isDefault = Boolean(record.isDefault ?? record.isSystem);
-    // User can access if they own the category OR if it is a system/default category
-    if (record.userId === validatedUserId || isDefault) {
+    const isSystemNil =
+      isDefault &&
+      (!record.userId || record.userId === '00000000-0000-0000-0000-000000000000');
+    // User can access if they own the category OR if it is an unassigned legacy system category
+    if (record.userId === validatedUserId || isSystemNil) {
       return this.toDomain(record);
     }
 
-    // Belongs to another tenant and is not a default category
+    // Belongs to another tenant
     throw new UnauthorizedEntityAccessError('Category', id);
   }
 
@@ -41,7 +44,13 @@ export class DexieCategoryRepository implements CategoryRepository {
       .toArray();
 
     const defaultRecords = await this.database.categories
-      .filter((c) => Boolean(c.isDefault ?? c.isSystem))
+      .filter(
+        (c) =>
+          Boolean(c.isDefault ?? c.isSystem) &&
+          (c.userId === validatedUserId ||
+            !c.userId ||
+            c.userId === '00000000-0000-0000-0000-000000000000')
+      )
       .toArray();
 
     const map = new Map<string, LocalCategoryRecord>();

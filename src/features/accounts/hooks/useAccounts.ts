@@ -5,6 +5,7 @@ import { DexieAccountRepository } from '@/infrastructure/database/local/reposito
 import { DexieTransactionRepository } from '@/infrastructure/database/local/repositories/DexieTransactionRepository';
 import { OutboxManager } from '@/infrastructure/sync/OutboxManager';
 import { DexieUnitOfWork } from '@/infrastructure/database/local/DexieUnitOfWork';
+import { defaultDatabaseManager } from '@/infrastructure/database/local/DatabaseManager';
 import {
   CreateAccountUseCase,
   UpdateAccountUseCase,
@@ -16,18 +17,37 @@ import {
 import { CreateAccountFormValues, EditAccountFormValues } from '../schemas/accountSchemas';
 import { formatPaiseToINR } from '@/utils/formatters';
 
-// Singleton infrastructure adapters
-const accountRepo = new DexieAccountRepository();
-const transactionRepo = new DexieTransactionRepository();
-const syncPort = new OutboxManager();
-const uow = new DexieUnitOfWork();
+// Fallback singleton infrastructure adapters for static/test contexts
+const fallbackAccountRepo = new DexieAccountRepository();
+const fallbackTransactionRepo = new DexieTransactionRepository();
+const fallbackSyncPort = new OutboxManager();
+const fallbackUow = new DexieUnitOfWork();
 
 // Instantiated application use cases
-const getAccountsUseCase = new GetAccountsWithBalanceUseCase(accountRepo, transactionRepo);
-const createAccountUseCase = new CreateAccountUseCase(accountRepo, syncPort, uow);
-const updateAccountUseCase = new UpdateAccountUseCase(accountRepo, syncPort, uow);
-const archiveAccountUseCase = new ArchiveAccountUseCase(accountRepo, syncPort, uow);
-const restoreAccountUseCase = new RestoreAccountUseCase(accountRepo, syncPort, uow);
+const fallbackGetAccountsUseCase = new GetAccountsWithBalanceUseCase(
+  fallbackAccountRepo,
+  fallbackTransactionRepo
+);
+const fallbackCreateAccountUseCase = new CreateAccountUseCase(
+  fallbackAccountRepo,
+  fallbackSyncPort,
+  fallbackUow
+);
+const fallbackUpdateAccountUseCase = new UpdateAccountUseCase(
+  fallbackAccountRepo,
+  fallbackSyncPort,
+  fallbackUow
+);
+const fallbackArchiveAccountUseCase = new ArchiveAccountUseCase(
+  fallbackAccountRepo,
+  fallbackSyncPort,
+  fallbackUow
+);
+const fallbackRestoreAccountUseCase = new RestoreAccountUseCase(
+  fallbackAccountRepo,
+  fallbackSyncPort,
+  fallbackUow
+);
 
 export interface AccountsSummary {
   totalNetWorthPaise: number;
@@ -55,7 +75,12 @@ export function useAccounts() {
     queryKey,
     queryFn: async () => {
       if (!user?.id) return [];
-      return getAccountsUseCase.execute(user.id, true);
+      try {
+        const repos = await defaultDatabaseManager.getActiveRepositories();
+        return repos.getAccountsUseCase.execute(user.id, true);
+      } catch {
+        return fallbackGetAccountsUseCase.execute(user.id, true);
+      }
     },
     enabled: !!user?.id
   });
@@ -115,7 +140,7 @@ export function useAccounts() {
       const parsedRupees = parseFloat(values.openingBalance);
       const openingBalancePaise = Math.round(parsedRupees * 100);
 
-      return createAccountUseCase.execute({
+      const params = {
         userId: user.id,
         name: values.name.trim(),
         accountType: values.accountType,
@@ -125,7 +150,14 @@ export function useAccounts() {
         color: values.color,
         icon: values.icon,
         notes: values.notes?.trim() || undefined
-      });
+      };
+
+      try {
+        const repos = await defaultDatabaseManager.getActiveRepositories();
+        return await repos.createAccountUseCase.execute(params);
+      } catch {
+        return await fallbackCreateAccountUseCase.execute(params);
+      }
     },
     onSuccess: (newAccount) => {
       queryClient.invalidateQueries({ queryKey });
@@ -142,7 +174,7 @@ export function useAccounts() {
   const updateAccountMutation = useMutation({
     mutationFn: async (values: EditAccountFormValues) => {
       if (!user?.id) throw new Error('You must be signed in to update an account.');
-      return updateAccountUseCase.execute({
+      const params = {
         id: values.id,
         userId: user.id,
         name: values.name.trim(),
@@ -151,7 +183,13 @@ export function useAccounts() {
         color: values.color,
         icon: values.icon,
         notes: values.notes?.trim() || undefined
-      });
+      };
+      try {
+        const repos = await defaultDatabaseManager.getActiveRepositories();
+        return await repos.updateAccountUseCase.execute(params);
+      } catch {
+        return await fallbackUpdateAccountUseCase.execute(params);
+      }
     },
     onSuccess: (updated) => {
       queryClient.invalidateQueries({ queryKey });
@@ -168,7 +206,12 @@ export function useAccounts() {
   const archiveAccountMutation = useMutation({
     mutationFn: async (accountId: string) => {
       if (!user?.id) throw new Error('You must be signed in to archive an account.');
-      return archiveAccountUseCase.execute(accountId, user.id);
+      try {
+        const repos = await defaultDatabaseManager.getActiveRepositories();
+        return await repos.archiveAccountUseCase.execute(accountId, user.id);
+      } catch {
+        return await fallbackArchiveAccountUseCase.execute(accountId, user.id);
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey });
@@ -185,7 +228,12 @@ export function useAccounts() {
   const restoreAccountMutation = useMutation({
     mutationFn: async (accountId: string) => {
       if (!user?.id) throw new Error('You must be signed in to restore an account.');
-      return restoreAccountUseCase.execute(accountId, user.id);
+      try {
+        const repos = await defaultDatabaseManager.getActiveRepositories();
+        return await repos.restoreAccountUseCase.execute(accountId, user.id);
+      } catch {
+        return await fallbackRestoreAccountUseCase.execute(accountId, user.id);
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey });

@@ -22,8 +22,17 @@ export class LaxmiLensDB extends Dexie {
   public syncOutbox!: Table<LocalOutboxRecord, number>;
   public syncMetadata!: Table<LocalSyncMetadataRecord, string>;
 
-  constructor() {
-    super(APP_CONFIG.database.name);
+  constructor(dbName: string = APP_CONFIG.database.name) {
+    super(dbName);
+
+    // Graceful handling of cross-tab version changes to prevent blocked upgrades
+    this.on('versionchange', () => {
+      this.close();
+      return false;
+    });
+    this.on('blocked', () => {
+      console.warn(`Dexie database '${this.name}' upgrade was blocked by another open connection.`);
+    });
 
     // Initial Schema Version 1
     this.version(1).stores({

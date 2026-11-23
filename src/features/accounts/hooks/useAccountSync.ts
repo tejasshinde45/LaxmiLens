@@ -6,6 +6,7 @@ import {
   defaultManualSyncCoordinator,
   UnifiedSyncResult
 } from '@/infrastructure/sync/ManualSyncCoordinator';
+import { defaultDatabaseManager } from '@/infrastructure/database/local/DatabaseManager';
 
 export function useAccountSync(client = globalQueryClient) {
   // Safely extract authentication context
@@ -29,7 +30,12 @@ export function useAccountSync(client = globalQueryClient) {
       queryKey: pendingQueryKey,
       queryFn: async () => {
         if (!user?.id) return 0;
-        return defaultManualSyncCoordinator.getPendingCount(user.id);
+        try {
+          const coordinator = await defaultDatabaseManager.getActiveSyncCoordinator();
+          return await coordinator.getPendingCount(user.id);
+        } catch {
+          return defaultManualSyncCoordinator.getPendingCount(user.id);
+        }
       },
       enabled: !!user?.id,
       // Strictly disable automatic refetch triggers (no periodic timers, no reconnect triggers)
@@ -47,7 +53,12 @@ export function useAccountSync(client = globalQueryClient) {
         if (!user?.id) {
           throw new Error('Please sign in to synchronize with the cloud.');
         }
-        return defaultManualSyncCoordinator.run();
+        try {
+          const coordinator = await defaultDatabaseManager.getActiveSyncCoordinator();
+          return await coordinator.run();
+        } catch {
+          return await defaultManualSyncCoordinator.run();
+        }
       },
       onSuccess: (result) => {
         // Invalidate relevant queries so UI reflects updated balances, transactions, and outbox state
