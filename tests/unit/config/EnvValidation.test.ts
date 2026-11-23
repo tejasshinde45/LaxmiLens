@@ -6,54 +6,87 @@ import {
 } from '@/config/env';
 
 describe('Environment Validation & Isolation', () => {
-  const validStagingKey = 'sb_publishable_valid_staging_test_token_1234567890';
   const validProdKey = 'sb_publishable_valid_production_test_token_1234567890';
+  const validStagingKey = 'sb_publishable_valid_staging_test_token_1234567890';
 
-  describe('1. Valid Staging Configuration', () => {
-    it('accepts valid staging configuration with publishable key', () => {
+  describe('1. Valid Development Configuration with Main Supabase Project', () => {
+    it('accepts valid development configuration with main project and publishable key', () => {
       const result = validateEnv({
-        VITE_APP_ENV: 'staging',
-        VITE_SUPABASE_URL: `https://${KNOWN_PROJECT_REFS.STAGING}.supabase.co`,
-        VITE_SUPABASE_PUBLISHABLE_KEY: validStagingKey
+        VITE_APP_ENV: 'development',
+        VITE_SUPABASE_URL: `https://${KNOWN_PROJECT_REFS.MAIN}.supabase.co`,
+        VITE_SUPABASE_PUBLISHABLE_KEY: validProdKey
       });
 
-      expect(result.VITE_APP_ENV).toBe('staging');
-      expect(result.VITE_SUPABASE_URL).toBe(`https://${KNOWN_PROJECT_REFS.STAGING}.supabase.co`);
-      expect(result.VITE_SUPABASE_PUBLISHABLE_KEY).toBe(validStagingKey);
-      expect(result.VITE_SUPABASE_ANON_KEY).toBe(validStagingKey);
+      expect(result.VITE_APP_ENV).toBe('development');
+      expect(result.VITE_SUPABASE_URL).toBe(`https://${KNOWN_PROJECT_REFS.MAIN}.supabase.co`);
+      expect(result.VITE_SUPABASE_PUBLISHABLE_KEY).toBe(validProdKey);
+      expect(result.VITE_SUPABASE_ANON_KEY).toBe(validProdKey);
     });
 
-    it('accepts valid staging configuration with anon key alias', () => {
+    it('accepts valid development configuration with anon key alias', () => {
       const result = validateEnv({
-        VITE_APP_ENV: 'staging',
-        VITE_SUPABASE_URL: `https://${KNOWN_PROJECT_REFS.STAGING}.supabase.co`,
-        VITE_SUPABASE_ANON_KEY: validStagingKey
+        VITE_APP_ENV: 'development',
+        VITE_SUPABASE_URL: `https://${KNOWN_PROJECT_REFS.MAIN}.supabase.co`,
+        VITE_SUPABASE_ANON_KEY: validProdKey
       });
 
-      expect(result.VITE_APP_ENV).toBe('staging');
-      expect(result.VITE_SUPABASE_PUBLISHABLE_KEY).toBe(validStagingKey);
+      expect(result.VITE_APP_ENV).toBe('development');
+      expect(result.VITE_SUPABASE_PUBLISHABLE_KEY).toBe(validProdKey);
+    });
+
+    it('accepts valid production configuration with main project reference', () => {
+      const result = validateEnv({
+        VITE_APP_ENV: 'production',
+        VITE_SUPABASE_URL: `https://${KNOWN_PROJECT_REFS.PRODUCTION}.supabase.co`,
+        VITE_SUPABASE_PUBLISHABLE_KEY: validProdKey
+      });
+
+      expect(result.VITE_APP_ENV).toBe('production');
+      expect(result.VITE_SUPABASE_URL).toBe(`https://${KNOWN_PROJECT_REFS.PRODUCTION}.supabase.co`);
+      expect(result.VITE_SUPABASE_PUBLISHABLE_KEY).toBe(validProdKey);
+    });
+
+    it('accepts localhost Supabase configuration for local development', () => {
+      const result = validateEnv({
+        VITE_APP_ENV: 'development',
+        VITE_SUPABASE_URL: 'http://localhost:54321',
+        VITE_SUPABASE_PUBLISHABLE_KEY: validProdKey
+      });
+
+      expect(result.VITE_APP_ENV).toBe('development');
+      expect(result.VITE_SUPABASE_URL).toBe('http://localhost:54321');
     });
   });
 
-  describe('2. Development Pointing to Production (Rejected)', () => {
-    it('rejects development environment pointing to known production project reference', () => {
+  describe('2. Development Pointing to Legacy Staging or Foreign Project (Rejected)', () => {
+    it('rejects development environment pointing to legacy staging project reference', () => {
       expect(() =>
         validateEnv({
           VITE_APP_ENV: 'development',
-          VITE_SUPABASE_URL: `https://${KNOWN_PROJECT_REFS.PRODUCTION}.supabase.co`,
-          VITE_SUPABASE_PUBLISHABLE_KEY: validProdKey
+          VITE_SUPABASE_URL: `https://${KNOWN_PROJECT_REFS.STAGING}.supabase.co`,
+          VITE_SUPABASE_PUBLISHABLE_KEY: validStagingKey
         })
-      ).toThrowError(/Development\/staging environment must not connect to production Supabase project/);
+      ).toThrowError(/Development environment must not connect to legacy staging Supabase project/);
     });
 
-    it('rejects development environment with production project ref in any part of URL', () => {
+    it('rejects development environment with legacy staging project ref in any part of URL', () => {
       expect(() =>
         validateEnv({
           VITE_APP_ENV: 'development',
-          VITE_SUPABASE_URL: `https://custom-domain.com/${KNOWN_PROJECT_REFS.PRODUCTION}`,
+          VITE_SUPABASE_URL: `https://custom-domain.com/${KNOWN_PROJECT_REFS.STAGING}`,
+          VITE_SUPABASE_PUBLISHABLE_KEY: validStagingKey
+        })
+      ).toThrowError(/Development environment must not connect to legacy staging Supabase project/);
+    });
+
+    it('rejects development environment pointing to unexpected foreign project reference', () => {
+      expect(() =>
+        validateEnv({
+          VITE_APP_ENV: 'development',
+          VITE_SUPABASE_URL: 'https://foreignproject12345.supabase.co',
           VITE_SUPABASE_PUBLISHABLE_KEY: validProdKey
         })
-      ).toThrowError(/Development\/staging environment must not connect to production Supabase project/);
+      ).toThrowError(/Project reference mismatch for development. Expected 'ujbbhvbtjfzsoalzmqve', but URL specifies 'foreignproject12345'/);
     });
   });
 
@@ -83,8 +116,8 @@ describe('Environment Validation & Isolation', () => {
     it('rejects when both publishable key and anon key are missing', () => {
       expect(() =>
         validateEnv({
-          VITE_APP_ENV: 'staging',
-          VITE_SUPABASE_URL: `https://${KNOWN_PROJECT_REFS.STAGING}.supabase.co`
+          VITE_APP_ENV: 'development',
+          VITE_SUPABASE_URL: `https://${KNOWN_PROJECT_REFS.MAIN}.supabase.co`
         })
       ).toThrowError(/Either VITE_SUPABASE_PUBLISHABLE_KEY or VITE_SUPABASE_ANON_KEY must be provided/);
     });
@@ -92,8 +125,8 @@ describe('Environment Validation & Isolation', () => {
     it('rejects when keys are empty strings or whitespace only', () => {
       expect(() =>
         validateEnv({
-          VITE_APP_ENV: 'staging',
-          VITE_SUPABASE_URL: `https://${KNOWN_PROJECT_REFS.STAGING}.supabase.co`,
+          VITE_APP_ENV: 'development',
+          VITE_SUPABASE_URL: `https://${KNOWN_PROJECT_REFS.MAIN}.supabase.co`,
           VITE_SUPABASE_PUBLISHABLE_KEY: '   '
         })
       ).toThrowError(/Either VITE_SUPABASE_PUBLISHABLE_KEY or VITE_SUPABASE_ANON_KEY must be provided/);
@@ -102,8 +135,8 @@ describe('Environment Validation & Isolation', () => {
     it('rejects when VITE_SUPABASE_URL is missing', () => {
       expect(() =>
         validateEnv({
-          VITE_APP_ENV: 'staging',
-          VITE_SUPABASE_PUBLISHABLE_KEY: validStagingKey
+          VITE_APP_ENV: 'development',
+          VITE_SUPABASE_PUBLISHABLE_KEY: validProdKey
         })
       ).toThrowError(/VITE_SUPABASE_URL is required/);
     });
@@ -113,9 +146,9 @@ describe('Environment Validation & Isolation', () => {
     it('rejects URL containing your-project-id placeholder', () => {
       expect(() =>
         validateEnv({
-          VITE_APP_ENV: 'staging',
+          VITE_APP_ENV: 'development',
           VITE_SUPABASE_URL: 'https://your-project-id.supabase.co',
-          VITE_SUPABASE_PUBLISHABLE_KEY: validStagingKey
+          VITE_SUPABASE_PUBLISHABLE_KEY: validProdKey
         })
       ).toThrowError(/VITE_SUPABASE_URL contains placeholder values/);
     });
@@ -123,9 +156,9 @@ describe('Environment Validation & Isolation', () => {
     it('rejects URL containing placeholder substring', () => {
       expect(() =>
         validateEnv({
-          VITE_APP_ENV: 'staging',
+          VITE_APP_ENV: 'development',
           VITE_SUPABASE_URL: 'https://placeholder-project.supabase.co',
-          VITE_SUPABASE_PUBLISHABLE_KEY: validStagingKey
+          VITE_SUPABASE_PUBLISHABLE_KEY: validProdKey
         })
       ).toThrowError(/VITE_SUPABASE_URL contains placeholder values/);
     });
@@ -133,8 +166,8 @@ describe('Environment Validation & Isolation', () => {
     it('rejects publishable key containing your-publishable-key-here placeholder', () => {
       expect(() =>
         validateEnv({
-          VITE_APP_ENV: 'staging',
-          VITE_SUPABASE_URL: `https://${KNOWN_PROJECT_REFS.STAGING}.supabase.co`,
+          VITE_APP_ENV: 'development',
+          VITE_SUPABASE_URL: `https://${KNOWN_PROJECT_REFS.MAIN}.supabase.co`,
           VITE_SUPABASE_PUBLISHABLE_KEY: 'your-publishable-key-here'
         })
       ).toThrowError(/Supabase API key contains placeholder values/);
@@ -143,8 +176,8 @@ describe('Environment Validation & Isolation', () => {
     it('rejects anon key containing your-anon-key placeholder', () => {
       expect(() =>
         validateEnv({
-          VITE_APP_ENV: 'staging',
-          VITE_SUPABASE_URL: `https://${KNOWN_PROJECT_REFS.STAGING}.supabase.co`,
+          VITE_APP_ENV: 'development',
+          VITE_SUPABASE_URL: `https://${KNOWN_PROJECT_REFS.MAIN}.supabase.co`,
           VITE_SUPABASE_ANON_KEY: 'your-anon-key-here'
         })
       ).toThrowError(/Supabase API key contains placeholder values/);
@@ -152,16 +185,6 @@ describe('Environment Validation & Isolation', () => {
   });
 
   describe('6. URL & Project-Reference Mismatch (Rejected)', () => {
-    it('rejects staging when URL references an unexpected foreign Supabase project', () => {
-      expect(() =>
-        validateEnv({
-          VITE_APP_ENV: 'staging',
-          VITE_SUPABASE_URL: 'https://foreignproject12345.supabase.co',
-          VITE_SUPABASE_PUBLISHABLE_KEY: validStagingKey
-        })
-      ).toThrowError(/Project reference mismatch for staging. Expected 'vtnygwjcwbufsreswhjw', but URL specifies 'foreignproject12345'/);
-    });
-
     it('rejects production when URL references an unexpected foreign Supabase project', () => {
       expect(() =>
         validateEnv({
@@ -175,9 +198,9 @@ describe('Environment Validation & Isolation', () => {
     it('rejects unparseable URL', () => {
       expect(() =>
         validateEnv({
-          VITE_APP_ENV: 'staging',
+          VITE_APP_ENV: 'development',
           VITE_SUPABASE_URL: 'not-a-valid-url',
-          VITE_SUPABASE_PUBLISHABLE_KEY: validStagingKey
+          VITE_SUPABASE_PUBLISHABLE_KEY: validProdKey
         })
       ).toThrowError(/VITE_SUPABASE_URL must be a valid URL/);
     });
@@ -185,9 +208,9 @@ describe('Environment Validation & Isolation', () => {
     it('rejects non-HTTPS URL (except localhost)', () => {
       expect(() =>
         validateEnv({
-          VITE_APP_ENV: 'staging',
-          VITE_SUPABASE_URL: `http://${KNOWN_PROJECT_REFS.STAGING}.supabase.co`,
-          VITE_SUPABASE_PUBLISHABLE_KEY: validStagingKey
+          VITE_APP_ENV: 'development',
+          VITE_SUPABASE_URL: `http://${KNOWN_PROJECT_REFS.MAIN}.supabase.co`,
+          VITE_SUPABASE_PUBLISHABLE_KEY: validProdKey
         })
       ).toThrowError(/VITE_SUPABASE_URL must use the HTTPS protocol/);
     });
@@ -198,8 +221,8 @@ describe('Environment Validation & Isolation', () => {
       const secretTokenWithWhitespace = 'sb_publishable_secret_token with whitespace';
       try {
         validateEnv({
-          VITE_APP_ENV: 'staging',
-          VITE_SUPABASE_URL: `https://${KNOWN_PROJECT_REFS.STAGING}.supabase.co`,
+          VITE_APP_ENV: 'development',
+          VITE_SUPABASE_URL: `https://${KNOWN_PROJECT_REFS.MAIN}.supabase.co`,
           VITE_SUPABASE_PUBLISHABLE_KEY: secretTokenWithWhitespace
         });
         expect.unreachable('Should have thrown');
@@ -218,6 +241,17 @@ describe('Environment Validation & Isolation', () => {
       expect(extractProjectRef('https://vtnygwjcwbufsreswhjw.supabase.co')).toBe('vtnygwjcwbufsreswhjw');
       expect(extractProjectRef('https://custom-host.com')).toBeNull();
       expect(extractProjectRef('invalid-url')).toBeNull();
+    });
+  });
+
+  describe('9. Configured Project Reference Verification', () => {
+    it('configures the main Supabase project reference (ujbbhvbtjfzsoalzmqve) without exposing secrets', async () => {
+      const { env } = await import('@/config/env');
+      expect(extractProjectRef(env.VITE_SUPABASE_URL)).toBe(KNOWN_PROJECT_REFS.MAIN);
+      expect(KNOWN_PROJECT_REFS.MAIN).toBe('ujbbhvbtjfzsoalzmqve');
+      expect(env.VITE_SUPABASE_URL).toBe('https://ujbbhvbtjfzsoalzmqve.supabase.co');
+      expect(typeof env.VITE_SUPABASE_PUBLISHABLE_KEY).toBe('string');
+      expect(env.VITE_SUPABASE_PUBLISHABLE_KEY.length).toBeGreaterThanOrEqual(20);
     });
   });
 });

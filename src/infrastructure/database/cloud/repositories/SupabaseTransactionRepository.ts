@@ -2,6 +2,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { supabase } from '../supabaseClient';
 import { CloudTransactionRow } from '../mappers/TransactionMapper';
 import { ISupabaseAccountRepository } from './SupabaseAccountRepository';
+import { ISupabaseCategoryRepository } from './SupabaseCategoryRepository';
 import { isValidUuid } from '@/domain/value-objects/Identifiers';
 import { TransferAccountMismatchError } from '@/domain/errors/DomainErrors';
 import {
@@ -34,14 +35,15 @@ export interface ISupabaseTransactionRepository {
 export class SupabaseTransactionRepository implements ISupabaseTransactionRepository {
   constructor(
     private readonly client: SupabaseClient = supabase,
-    private readonly accountRepo?: ISupabaseAccountRepository
+    private readonly accountRepo?: ISupabaseAccountRepository,
+    private readonly categoryRepo?: ISupabaseCategoryRepository
   ) {}
 
   /**
    * Inserts a canonical transaction row into Supabase PostgreSQL.
    * Guarantees:
    * 1. Preserves local transaction UUID.
-   * 2. Enforces Category Identity Safety (rejects non-null category_id).
+   * 2. Enforces Category Identity Safety (verifies category exists in cloud).
    * 3. Validates account existence & tenant ownership for source and destination accounts.
    * 4. Reconciles PostgreSQL error 23505 (duplicate key) on ID or (user_id, idempotency_key).
    * 5. Never uses unconditional upsert.
@@ -53,12 +55,26 @@ export class SupabaseTransactionRepository implements ISupabaseTransactionReposi
     }
 
     // 2. Category Identity Safety Guard
-    // Block any transaction with a non-null category ID until category identity reconciliation is implemented.
     if (transaction.category_id !== null && transaction.category_id !== undefined) {
-      throw new SyncUnresolvedCategoryError(
-        `Cannot persist transaction '${transaction.id}': Category reference '${transaction.category_id}' cannot be resolved to cloud identity. Categorized transaction synchronization is blocked until category synchronization is implemented.`,
-        transaction.category_id
-      );
+      if (this.categoryRepo) {
+        const cloudCat = await this.categoryRepo.findById(transaction.category_id, transaction.user_id);
+        if (!cloudCat || cloudCat.user_id !== transaction.user_id) {
+          throw new SyncUnresolvedCategoryError(
+            `Cannot persist transaction '${transaction.id}': Category reference '${transaction.category_id}' cannot be resolved to cloud identity.`,
+            transaction.category_id
+          );
+        }
+        if (transaction.type !== 'transfer' && cloudCat.type !== transaction.type) {
+          throw new Error(
+            `Category type mismatch: Category '${transaction.category_id}' is of type '${cloudCat.type}' but transaction is '${transaction.type}'.`
+          );
+        }
+      } else {
+        throw new SyncUnresolvedCategoryError(
+          `Cannot persist transaction '${transaction.id}': Category reference '${transaction.category_id}' cannot be resolved to cloud identity. Categorized transaction synchronization is blocked until category synchronization is implemented.`,
+          transaction.category_id
+        );
+      }
     }
 
     // 3. Account Dependency Validation
@@ -85,6 +101,16 @@ export class SupabaseTransactionRepository implements ISupabaseTransactionReposi
       if (error.code === '23505') {
         // Unique violation: reconcile duplicate ID or (user_id, idempotency_key)
         return await this.reconcileDuplicateInsert(transaction);
+      }
+
+      if (error.code === '23503') {
+        const errorText = `${error.message || ''} ${error.details || ''}`.toLowerCase();
+        if (errorText.includes('category')) {
+          throw new SyncUnresolvedCategoryError(
+            `Cannot persist transaction '${transaction.id}': Category reference '${transaction.category_id}' violates cloud foreign key constraint.`,
+            transaction.category_id || ''
+          );
+        }
       }
 
       if (error.code === '42501') {
@@ -148,21 +174,43 @@ export class SupabaseTransactionRepository implements ISupabaseTransactionReposi
     }
 
     // Guard: Category Identity Safety
-    // If the transaction in cloud has a non-null category_id, all updates are blocked
-    // until category identity reconciliation is implemented.
     if (current.category_id !== null && current.category_id !== undefined) {
-      throw new SyncUnresolvedCategoryError(
-        `Cannot update transaction '${id}': Cloud transaction has category reference '${current.category_id}'. Categorized transaction synchronization is blocked until category synchronization is implemented.`,
-        current.category_id
-      );
+      if (this.categoryRepo) {
+        const cloudCat = await this.categoryRepo.findById(current.category_id, userId);
+        if (!cloudCat || cloudCat.user_id !== userId) {
+          throw new SyncUnresolvedCategoryError(
+            `Cannot update transaction '${id}': Cloud transaction has category reference '${current.category_id}' that cannot be resolved.`,
+            current.category_id
+          );
+        }
+      } else {
+        throw new SyncUnresolvedCategoryError(
+          `Cannot update transaction '${id}': Cloud transaction has category reference '${current.category_id}'. Categorized transaction synchronization is blocked until category synchronization is implemented.`,
+          current.category_id
+        );
+      }
     }
 
-    // Guard: If patch attempts to set a non-null category_id, reject immediately
     if (patch.category_id !== null && patch.category_id !== undefined) {
-      throw new SyncUnresolvedCategoryError(
-        `Cannot update transaction '${id}': Category reference '${patch.category_id}' cannot be resolved to cloud identity. Categorized transaction synchronization is blocked until category synchronization is implemented.`,
-        patch.category_id
-      );
+      if (this.categoryRepo) {
+        const cloudCat = await this.categoryRepo.findById(patch.category_id, userId);
+        if (!cloudCat || cloudCat.user_id !== userId) {
+          throw new SyncUnresolvedCategoryError(
+            `Cannot update transaction '${id}': Category reference '${patch.category_id}' cannot be resolved to cloud identity.`,
+            patch.category_id
+          );
+        }
+        if (current.type !== 'transfer' && cloudCat.type !== current.type) {
+          throw new Error(
+            `Category type mismatch: Category '${patch.category_id}' is of type '${cloudCat.type}' but transaction is '${current.type}'.`
+          );
+        }
+      } else {
+        throw new SyncUnresolvedCategoryError(
+          `Cannot update transaction '${id}': Category reference '${patch.category_id}' cannot be resolved to cloud identity. Categorized transaction synchronization is blocked until category synchronization is implemented.`,
+          patch.category_id
+        );
+      }
     }
 
     const targetVersion = patch.version ?? expectedVersion + 1;

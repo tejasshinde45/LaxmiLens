@@ -16,6 +16,8 @@ import { DexieUnitOfWork } from './DexieUnitOfWork';
 import { ManualSyncCoordinator } from '@/infrastructure/sync/ManualSyncCoordinator';
 import { AccountSyncDispatcher } from '@/infrastructure/sync/dispatchers/AccountSyncDispatcher';
 import { TransactionSyncDispatcher } from '@/infrastructure/sync/dispatchers/TransactionSyncDispatcher';
+import { CategorySyncDispatcher } from '@/infrastructure/sync/dispatchers/CategorySyncDispatcher';
+import { CategoryMappingService } from '@/infrastructure/sync/CategoryMappingService';
 import {
   ISupabaseAccountRepository,
   SupabaseAccountRepository
@@ -25,11 +27,20 @@ import {
   SupabaseTransactionRepository
 } from '../cloud/repositories/SupabaseTransactionRepository';
 import {
+  ISupabaseCategoryRepository,
+  SupabaseCategoryRepository
+} from '../cloud/repositories/SupabaseCategoryRepository';
+import {
   GetAccountsWithBalanceUseCase,
   CreateAccountUseCase,
   UpdateAccountUseCase,
   ArchiveAccountUseCase,
-  RestoreAccountUseCase
+  RestoreAccountUseCase,
+  GetTransactionsUseCase,
+  CreateTransactionUseCase,
+  UpdateTransactionUseCase,
+  DeleteTransactionUseCase,
+  ExecuteTransferUseCase
 } from '@/application';
 
 export const DATABASE_PREFIX = 'LaxmiLens_LocalDB';
@@ -57,6 +68,13 @@ export interface UserRepositories {
   updateAccountUseCase: UpdateAccountUseCase;
   archiveAccountUseCase: ArchiveAccountUseCase;
   restoreAccountUseCase: RestoreAccountUseCase;
+
+  // Pre-wired transaction use cases
+  getTransactionsUseCase: GetTransactionsUseCase;
+  createTransactionUseCase: CreateTransactionUseCase;
+  updateTransactionUseCase: UpdateTransactionUseCase;
+  deleteTransactionUseCase: DeleteTransactionUseCase;
+  executeTransferUseCase: ExecuteTransferUseCase;
 }
 
 export class DatabaseManager {
@@ -71,7 +89,12 @@ export class DatabaseManager {
     private readonly authPort: AuthPort = defaultAuthAdapter,
     private readonly dbFactory: (name: string) => LaxmiLensDB = (name) => new LaxmiLensDB(name),
     private readonly supabaseAccountRepo: ISupabaseAccountRepository = new SupabaseAccountRepository(),
-    private readonly supabaseTransactionRepo: ISupabaseTransactionRepository = new SupabaseTransactionRepository()
+    private readonly supabaseTransactionRepo: ISupabaseTransactionRepository = new SupabaseTransactionRepository(
+      undefined,
+      supabaseAccountRepo,
+      new SupabaseCategoryRepository()
+    ),
+    private readonly supabaseCategoryRepo: ISupabaseCategoryRepository = new SupabaseCategoryRepository()
   ) {}
 
   public getSessionGeneration(): number {
@@ -287,23 +310,38 @@ export class DatabaseManager {
     const outboxManager = new OutboxManager(database);
     const unitOfWork = new DexieUnitOfWork(database);
 
+    const categoryMappingService = new CategoryMappingService(
+      database,
+      this.supabaseCategoryRepo,
+      categoryRepo
+    );
+
     const accountDispatcher = new AccountSyncDispatcher(
       this.supabaseAccountRepo,
       this.authPort,
       outboxManager
     );
 
+    const categoryDispatcher = new CategorySyncDispatcher(
+      this.supabaseCategoryRepo,
+      this.authPort,
+      outboxManager,
+      categoryMappingService
+    );
+
     const transactionDispatcher = new TransactionSyncDispatcher(
       this.supabaseTransactionRepo,
       this.authPort,
-      outboxManager
+      outboxManager,
+      categoryMappingService
     );
 
     const syncCoordinator = new ManualSyncCoordinator(
       accountDispatcher,
       transactionDispatcher,
       outboxManager,
-      this.authPort
+      this.authPort,
+      categoryDispatcher
     );
 
     const getAccountsUseCase = new GetAccountsWithBalanceUseCase(accountRepo, transactionRepo);
@@ -311,6 +349,33 @@ export class DatabaseManager {
     const updateAccountUseCase = new UpdateAccountUseCase(accountRepo, outboxManager, unitOfWork);
     const archiveAccountUseCase = new ArchiveAccountUseCase(accountRepo, outboxManager, unitOfWork);
     const restoreAccountUseCase = new RestoreAccountUseCase(accountRepo, outboxManager, unitOfWork);
+
+    const getTransactionsUseCase = new GetTransactionsUseCase(transactionRepo);
+    const createTransactionUseCase = new CreateTransactionUseCase(
+      transactionRepo,
+      accountRepo,
+      categoryRepo,
+      outboxManager,
+      unitOfWork
+    );
+    const updateTransactionUseCase = new UpdateTransactionUseCase(
+      transactionRepo,
+      accountRepo,
+      categoryRepo,
+      outboxManager,
+      unitOfWork
+    );
+    const deleteTransactionUseCase = new DeleteTransactionUseCase(
+      transactionRepo,
+      outboxManager,
+      unitOfWork
+    );
+    const executeTransferUseCase = new ExecuteTransferUseCase(
+      transactionRepo,
+      accountRepo,
+      outboxManager,
+      unitOfWork
+    );
 
     this.activeRepositories = {
       userId,
@@ -327,7 +392,12 @@ export class DatabaseManager {
       createAccountUseCase,
       updateAccountUseCase,
       archiveAccountUseCase,
-      restoreAccountUseCase
+      restoreAccountUseCase,
+      getTransactionsUseCase,
+      createTransactionUseCase,
+      updateTransactionUseCase,
+      deleteTransactionUseCase,
+      executeTransferUseCase
     };
 
     return this.activeRepositories;

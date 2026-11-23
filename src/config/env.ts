@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 export const KNOWN_PROJECT_REFS = {
+  MAIN: 'ujbbhvbtjfzsoalzmqve',
   PRODUCTION: 'ujbbhvbtjfzsoalzmqve',
   STAGING: 'vtnygwjcwbufsreswhjw'
 } as const;
@@ -74,14 +75,20 @@ export function validateEnv(rawEnv: Record<string, unknown>): ValidatedEnv {
 
   const projectRef = extractProjectRef(trimmedUrl);
 
-  // 3. Cross-Environment Isolation Checks
-  if (appEnv === 'development' || appEnv === 'staging') {
+  // 3. Project Reference and Cross-Environment Checks
+  // Local development connects directly to the main Supabase project (ujbbhvbtjfzsoalzmqve) or localhost
+  if (appEnv === 'development') {
     if (
-      projectRef === KNOWN_PROJECT_REFS.PRODUCTION ||
-      trimmedUrl.toLowerCase().includes(KNOWN_PROJECT_REFS.PRODUCTION)
+      projectRef === KNOWN_PROJECT_REFS.STAGING ||
+      trimmedUrl.toLowerCase().includes(KNOWN_PROJECT_REFS.STAGING)
     ) {
       throw new Error(
-        `Environment validation failed: Development/staging environment must not connect to production Supabase project (${KNOWN_PROJECT_REFS.PRODUCTION}). Please configure the staging project.`
+        `Environment validation failed: Development environment must not connect to legacy staging Supabase project (${KNOWN_PROJECT_REFS.STAGING}). Please configure the main Supabase project (${KNOWN_PROJECT_REFS.MAIN}).`
+      );
+    }
+    if (projectRef && projectRef !== KNOWN_PROJECT_REFS.MAIN) {
+      throw new Error(
+        `Environment validation failed: Project reference mismatch for development. Expected '${KNOWN_PROJECT_REFS.MAIN}', but URL specifies '${projectRef}'.`
       );
     }
   }
@@ -95,19 +102,17 @@ export function validateEnv(rawEnv: Record<string, unknown>): ValidatedEnv {
         `Environment validation failed: Production environment must not connect to staging Supabase project (${KNOWN_PROJECT_REFS.STAGING}). Please configure the production Supabase project.`
       );
     }
+    if (projectRef && projectRef !== KNOWN_PROJECT_REFS.PRODUCTION) {
+      throw new Error(
+        `Environment validation failed: Project reference mismatch for production. Expected '${KNOWN_PROJECT_REFS.PRODUCTION}', but URL specifies '${projectRef}'.`
+      );
+    }
   }
 
-  // Staging URL / Project Ref check
+  // Staging URL / Project Ref check (legacy compatibility)
   if (appEnv === 'staging' && projectRef && projectRef !== KNOWN_PROJECT_REFS.STAGING) {
     throw new Error(
       `Environment validation failed: Project reference mismatch for staging. Expected '${KNOWN_PROJECT_REFS.STAGING}', but URL specifies '${projectRef}'.`
-    );
-  }
-
-  // Production URL / Project Ref check
-  if (appEnv === 'production' && projectRef && projectRef !== KNOWN_PROJECT_REFS.PRODUCTION) {
-    throw new Error(
-      `Environment validation failed: Project reference mismatch for production. Expected '${KNOWN_PROJECT_REFS.PRODUCTION}', but URL specifies '${projectRef}'.`
     );
   }
 
@@ -150,15 +155,16 @@ export function validateEnv(rawEnv: Record<string, unknown>): ValidatedEnv {
 export const parseEnv = (rawEnv: Record<string, unknown> = import.meta.env): ValidatedEnv => {
   const isVitest = typeof process !== 'undefined' && (process.env.VITEST === 'true' || process.env.NODE_ENV === 'test');
 
-  // In test runners (Vitest), if default environment variables point to local prod, normalize for test runner
+  // In test runners (Vitest), if default environment variables point to local prod/main or aren't set, normalize for test runner
   if (isVitest) {
     const testEnv: Record<string, unknown> = {
       ...rawEnv,
       VITE_APP_ENV: rawEnv.VITE_APP_ENV ?? 'test',
       VITE_SUPABASE_URL:
-        typeof rawEnv.VITE_SUPABASE_URL === 'string' && !rawEnv.VITE_SUPABASE_URL.includes(KNOWN_PROJECT_REFS.PRODUCTION)
+        typeof rawEnv.VITE_SUPABASE_URL === 'string' &&
+        !PLACEHOLDER_PATTERNS.some((p) => String(rawEnv.VITE_SUPABASE_URL).includes(p))
           ? rawEnv.VITE_SUPABASE_URL
-          : `https://${KNOWN_PROJECT_REFS.STAGING}.supabase.co`,
+          : `https://${KNOWN_PROJECT_REFS.MAIN}.supabase.co`,
       VITE_SUPABASE_PUBLISHABLE_KEY:
         typeof rawEnv.VITE_SUPABASE_PUBLISHABLE_KEY === 'string' &&
         !PLACEHOLDER_PATTERNS.some((p) => String(rawEnv.VITE_SUPABASE_PUBLISHABLE_KEY).includes(p))

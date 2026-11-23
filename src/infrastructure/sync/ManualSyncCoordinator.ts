@@ -1,5 +1,6 @@
 import { AccountSyncDispatcher } from './dispatchers/AccountSyncDispatcher';
 import { TransactionSyncDispatcher } from './dispatchers/TransactionSyncDispatcher';
+import { CategorySyncDispatcher } from './dispatchers/CategorySyncDispatcher';
 import { OutboxManager } from './OutboxManager';
 import { AuthPort } from '@/application/ports/AuthPort';
 import { LocalOutboxRecord } from '../database/local/schema';
@@ -13,6 +14,8 @@ import {
 } from './errors/SyncErrors';
 import { SupabaseAccountRepository } from '../database/cloud/repositories/SupabaseAccountRepository';
 import { SupabaseTransactionRepository } from '../database/cloud/repositories/SupabaseTransactionRepository';
+import { SupabaseCategoryRepository } from '../database/cloud/repositories/SupabaseCategoryRepository';
+import { CategoryMappingService } from './CategoryMappingService';
 import { defaultAuthAdapter } from '../auth/SupabaseAuthAdapter';
 
 export interface SyncErrorItem {
@@ -39,6 +42,11 @@ export interface UnifiedSyncResult {
     failedCount: number;
     skippedCount: number;
   };
+  categories: {
+    syncedCount: number;
+    failedCount: number;
+    skippedCount: number;
+  };
   transactions: {
     syncedCount: number;
     failedCount: number;
@@ -55,20 +63,20 @@ export interface UnifiedSyncResult {
 /**
  * ManualSyncCoordinator
  *
- * Dedicated unified application-level coordinator for manual synchronization of both
- * 'accounts' and 'transactions' outbox entries.
+ * Dedicated unified application-level coordinator for manual synchronization of
+ * 'accounts', 'categories', and 'transactions' outbox entries.
  *
  * Guarantees:
  * 1. Strict User Context: Requires authenticated user; rejects unauthenticated calls with SyncAuthError.
  * 2. Concurrency Safety: Mutex prevents concurrent manual clicks from starting competing global sync jobs.
- * 3. Accounts-Before-Transactions Ordering: In every batch, all eligible account events are dispatched
- *    before transaction events begin.
- * 4. Cross-Entity Dependency Safety: Transactions referencing newly synced accounts succeed; transactions
- *    referencing failed or un-synced accounts safely fail and remain in the outbox.
+ * 3. Accounts-Before-Categories-Before-Transactions Ordering: In every batch, all eligible account events
+ *    are dispatched first, then category events, then transaction events.
+ * 4. Cross-Entity Dependency Safety: Transactions referencing newly synced accounts and categories succeed;
+ *    transactions referencing failed or un-synced accounts/categories safely fail and remain in the outbox.
  * 5. Strict Sequential Processing: Outbox entries are processed one-by-one in FIFO insertion order.
- * 6. Per-Entity Failure Isolation: If an earlier event for an account or transaction fails, subsequent
- *    events for that SAME entity ID are skipped during this run to preserve version progression (v1 -> v2 -> v3).
- * 7. Multi-Entity Progression: Other independent accounts and transactions continue processing.
+ * 6. Per-Entity Failure Isolation: If an earlier event for an entity fails, subsequent events for that SAME
+ *    entity ID are skipped during this run to preserve version progression (v1 -> v2 -> v3).
+ * 7. Multi-Entity Progression: Other independent accounts, categories, and transactions continue processing.
  * 8. Non-Destructive to Unsupported Entities: Unsupported entities remain untouched in the outbox.
  * 9. Dispatcher Acknowledgment: The coordinator never deletes entries directly; outbox records are
  *    acknowledged (deleted) solely by dispatchers after verified remote persistence.
@@ -81,7 +89,8 @@ export class ManualSyncCoordinator {
     private readonly accountDispatcher: AccountSyncDispatcher,
     private readonly transactionDispatcher: TransactionSyncDispatcher,
     private readonly outboxManager: OutboxManager,
-    private readonly authPort: AuthPort
+    private readonly authPort: AuthPort,
+    private readonly categoryDispatcher?: CategorySyncDispatcher
   ) {}
 
   public isSyncRunning(): boolean {
@@ -89,7 +98,7 @@ export class ManualSyncCoordinator {
   }
 
   /**
-   * Retrieves pending outbox records for coordinated entities ('accounts' and 'transactions').
+   * Retrieves pending outbox records for coordinated entities ('accounts', 'categories', 'transactions').
    * Scoped to the authenticated user.
    */
   public async getPendingEntries(userId?: string, limit = 100): Promise<LocalOutboxRecord[]> {
@@ -98,9 +107,11 @@ export class ManualSyncCoordinator {
       return [];
     }
     const allPending = await this.outboxManager.getPendingEntries(targetUserId, limit);
-    return allPending.filter(
-      (entry) => entry.entity === 'accounts' || entry.entity === 'transactions'
-    );
+    return allPending.filter((entry) => {
+      if (entry.entity === 'accounts' || entry.entity === 'transactions') return true;
+      if (entry.entity === 'categories' && this.categoryDispatcher) return true;
+      return false;
+    });
   }
 
   /**
@@ -146,6 +157,11 @@ export class ManualSyncCoordinator {
           failedCount: 0,
           skippedCount: 0
         },
+        categories: {
+          syncedCount: 0,
+          failedCount: 0,
+          skippedCount: 0
+        },
         transactions: {
           syncedCount: 0,
           failedCount: 0,
@@ -163,12 +179,15 @@ export class ManualSyncCoordinator {
 
       // Group entries preserving FIFO within each group
       const accountEntries: LocalOutboxRecord[] = [];
+      const categoryEntries: LocalOutboxRecord[] = [];
       const transactionEntries: LocalOutboxRecord[] = [];
       const unsupportedEntries: LocalOutboxRecord[] = [];
 
       for (const entry of pendingEntries) {
         if (entry.entity === 'accounts') {
           accountEntries.push(entry);
+        } else if (entry.entity === 'categories' && this.categoryDispatcher) {
+          categoryEntries.push(entry);
         } else if (entry.entity === 'transactions') {
           transactionEntries.push(entry);
         } else {
@@ -213,7 +232,45 @@ export class ManualSyncCoordinator {
         }
       }
 
-      // 4. Process transaction events (only after account events have completed)
+      // 4. Process category events second (Accounts -> Categories -> Transactions)
+      const failedCategoryIds = new Set<string>();
+
+      for (const entry of categoryEntries) {
+        const categoryId = entry.entityId;
+
+        // Skip subsequent entries for a category that already encountered a failure
+        if (failedCategoryIds.has(categoryId)) {
+          result.skippedCount++;
+          result.categories.skippedCount++;
+          continue;
+        }
+
+        result.totalProcessed++;
+
+        try {
+          if (!this.categoryDispatcher) {
+            throw new Error('CategorySyncDispatcher is not configured.');
+          }
+          await this.categoryDispatcher.dispatch(entry);
+          result.syncedCount++;
+          result.categories.syncedCount++;
+        } catch (error) {
+          result.failedCount++;
+          result.categories.failedCount++;
+          failedCategoryIds.add(categoryId);
+
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          result.errors.push({
+            entity: 'categories',
+            entityId: categoryId,
+            outboxId: entry.id,
+            error: errorMsg,
+            category: this.classifyError(error)
+          });
+        }
+      }
+
+      // 5. Process transaction events (only after account and category events have completed)
       const failedTransactionIds = new Set<string>();
 
       for (const entry of transactionEntries) {
@@ -223,6 +280,29 @@ export class ManualSyncCoordinator {
         if (failedTransactionIds.has(transactionId)) {
           result.skippedCount++;
           result.transactions.skippedCount++;
+          continue;
+        }
+
+        // Check if transaction references a category that failed synchronization in step 4
+        const rawCategory = entry.payload.category_id ?? entry.payload.categoryId;
+        if (
+          rawCategory !== null &&
+          rawCategory !== undefined &&
+          failedCategoryIds.has(String(rawCategory))
+        ) {
+          result.failedCount++;
+          result.transactions.failedCount++;
+          result.transactions.categoryBlockedCount++;
+          failedTransactionIds.add(transactionId);
+
+          const errorMsg = `Cannot sync transaction '${transactionId}': referenced category '${rawCategory}' failed synchronization.`;
+          result.errors.push({
+            entity: 'transactions',
+            entityId: transactionId,
+            outboxId: entry.id,
+            error: errorMsg,
+            category: 'category'
+          });
           continue;
         }
 
@@ -258,7 +338,7 @@ export class ManualSyncCoordinator {
         }
       }
 
-      // 5. Update remaining still pending count scoped to authenticated user
+      // 6. Update remaining still pending count scoped to authenticated user
       result.stillPendingCount = await this.outboxManager.getPendingCount(currentUser.id);
 
       return result;
@@ -285,11 +365,17 @@ export class ManualSyncCoordinator {
 
 // Default singleton instances wired to canonical repositories and outbox manager
 const defaultSupabaseAccountRepo = new SupabaseAccountRepository();
+const defaultSupabaseCategoryRepo = new SupabaseCategoryRepository();
 const defaultSupabaseTransactionRepo = new SupabaseTransactionRepository(
   undefined,
-  defaultSupabaseAccountRepo
+  defaultSupabaseAccountRepo,
+  defaultSupabaseCategoryRepo
 );
 const defaultOutboxManager = new OutboxManager();
+const defaultCategoryMappingService = new CategoryMappingService(
+  undefined,
+  defaultSupabaseCategoryRepo
+);
 
 const defaultAccountDispatcher = new AccountSyncDispatcher(
   defaultSupabaseAccountRepo,
@@ -297,15 +383,24 @@ const defaultAccountDispatcher = new AccountSyncDispatcher(
   defaultOutboxManager
 );
 
+const defaultCategoryDispatcher = new CategorySyncDispatcher(
+  defaultSupabaseCategoryRepo,
+  defaultAuthAdapter,
+  defaultOutboxManager,
+  defaultCategoryMappingService
+);
+
 const defaultTransactionDispatcher = new TransactionSyncDispatcher(
   defaultSupabaseTransactionRepo,
   defaultAuthAdapter,
-  defaultOutboxManager
+  defaultOutboxManager,
+  defaultCategoryMappingService
 );
 
 export const defaultManualSyncCoordinator = new ManualSyncCoordinator(
   defaultAccountDispatcher,
   defaultTransactionDispatcher,
   defaultOutboxManager,
-  defaultAuthAdapter
+  defaultAuthAdapter,
+  defaultCategoryDispatcher
 );

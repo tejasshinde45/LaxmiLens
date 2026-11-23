@@ -61,8 +61,9 @@ export function useAccountSync(client = globalQueryClient) {
         }
       },
       onSuccess: (result) => {
-        // Invalidate relevant queries so UI reflects updated balances, transactions, and outbox state
+        // Invalidate relevant queries so UI reflects updated balances, transactions, categories, and outbox state
         client.invalidateQueries({ queryKey: ['accounts', user?.id] });
+        client.invalidateQueries({ queryKey: ['categories', user?.id] });
         client.invalidateQueries({ queryKey: ['transactions', user?.id] });
         client.invalidateQueries({ queryKey: pendingQueryKey });
 

@@ -1,36 +1,36 @@
-# LaxmiLens — Hybrid Development & Deployment Workflow
+# LaxmiLens — Development & Deployment Workflow
 
-**Document Version:** 1.0.0  
+**Document Version:** 2.0.0  
 **Status:** Active Canonical Architecture Standard  
-**Target Systems:** LaxmiLens Web PWA, Dexie Local IndexedDB, Supabase PostgreSQL (Staging & Production)
+**Target Systems:** LaxmiLens Web PWA, Dexie Local IndexedDB, Supabase PostgreSQL (Main Project: `ujbbhvbtjfzsoalzmqve`)
 
 ---
 
 ## 1. Executive Summary & Core Principles
 
-LaxmiLens is an offline-first personal financial management application with cryptographic data integrity constraints and optimistic concurrency. To balance high developer velocity with absolute preservation of user financial ledger data, LaxmiLens enforces a **Hybrid Development & Deployment Workflow**.
+LaxmiLens is an offline-first personal financial management application with cryptographic data integrity constraints and optimistic concurrency. To balance high developer velocity with absolute preservation of financial ledger data, LaxmiLens connects local development directly to the main Supabase project using test/dummy user accounts and dummy financial records until the complete application is ready.
 
 ### Core Invariants
 
 1. **Single Source of Truth:** A single GitHub repository and code branch hierarchy governs all code. Divergent environment branches are strictly forbidden.
-2. **Dual-Environment Cloud Isolation:** Local development and integration tests target the **Staging Supabase** project. The **Production Supabase** project receives only verified, approved release builds.
-3. **Fail-Closed Environment Guards:** Application startup validates project references at compile and runtime. Any attempt by development code to contact production halts execution immediately.
-4. **Zero Live Data Contamination:** Synthetic testing, stress testing, and sync regression tests are never performed on production ledgers.
+2. **Main Project Direct Development:** Local development and testing connect to the main Supabase project (`ujbbhvbtjfzsoalzmqve`) using dummy/test financial records.
+3. **Fail-Closed Environment Guards:** Application startup validates project references and formatting at compile and runtime. Any invalid project reference, placeholder credential, or non-HTTPS URL halts execution immediately.
+4. **Offline-First & Local Partitioning:** Local persistence is powered by Dexie (IndexedDB) partitioned by authenticated user ID. Changes remain local in the Transactional Outbox until explicit, manual "Sync Now" is triggered.
 5. **No Frontend Service Role:** The Supabase `service_role` key must never enter client bundles, environment files, or repository code.
 
 ---
 
 ## 2. Environment Architecture Matrix
 
-| Property | Local Staging (Default Dev) | Local Production (Readiness Audit) | Hosted Production |
-| :--- | :--- | :--- | :--- |
-| **Project Name** | `LaxmiLens-Staging` | `LaxmiLens` | `LaxmiLens` |
-| **Project Reference** | `vtnygwjcwbufsreswhjw` | `ujbbhvbtjfzsoalzmqve` | `ujbbhvbtjfzsoalzmqve` |
-| **Database Host** | `db.vtnygwjcwbufsreswhjw.supabase.co` | `db.ujbbhvbtjfzsoalzmqve.supabase.co` | `db.ujbbhvbtjfzsoalzmqve.supabase.co` |
-| **Vite App Mode** | `staging` | `production` | `production` |
-| **Local Config File** | `.env.staging.local` | `.env.local` / `.env.production.local` | Hosted Platform Secrets |
-| **Vite Launch Script** | `npm run dev:staging` | `npm run preview` (post-build) | CDN / Static Host |
-| **Permitted Mutations** | Full (Create, reset, seed) | Read-only / Controlled Audit | End-User Ledger Data Only |
+| Property | Local Development (Default Dev) | Hosted Production |
+| :--- | :--- | :--- |
+| **Project Name** | `LaxmiLens` | `LaxmiLens` |
+| **Project Reference** | `ujbbhvbtjfzsoalzmqve` | `ujbbhvbtjfzsoalzmqve` |
+| **Database Host** | `db.ujbbhvbtjfzsoalzmqve.supabase.co` | `db.ujbbhvbtjfzsoalzmqve.supabase.co` |
+| **Vite App Mode** | `development` | `production` |
+| **Local Config File** | `.env.local` | Hosted Platform Secrets |
+| **Vite Launch Script** | `npm run dev` | CDN / Static Host |
+| **Permitted Mutations** | Dummy/test records, user-scoped ledger entries | End-User Ledger Data |
 
 ---
 
@@ -42,29 +42,26 @@ LaxmiLens is an offline-first personal financial management application with cry
 LaxmiLens/
 ├── .env.example              # TRACKED: Sanitized template with dummy placeholders
 ├── .env                      # IGNORED: Fallback default values
-├── .env.local                # IGNORED: Local developer configuration (Production reference)
-├── .env.staging.local        # IGNORED: Local developer configuration (Staging reference)
+├── .env.local                # IGNORED: Local developer configuration (Main project reference)
 └── supabase/
-    ├── config.toml           # TRACKED: Base Supabase CLI settings
+    ├── config.toml           # TRACKED: Base Supabase CLI settings (project_id = "ujbbhvbtjfzsoalzmqve")
     └── .temp/                # IGNORED: Active CLI linking state (project-ref, pooler)
 ```
 
-- **`.gitignore` Invariant:** `.env`, `.env.local`, `.env.staging.local`, `.env.*.local`, and `supabase/.temp/` are permanently ignored.
-- **`.env.example` Invariant:** Must contain only documented variable keys and placeholder values (e.g., `https://<staging-project-ref>.supabase.co`). Real API keys or project references must never be committed.
+- **`.gitignore` Invariant:** `.env`, `.env.local`, `.env.*.local`, and `supabase/.temp/` are permanently ignored.
+- **`.env.example` Invariant:** Must contain only documented variable keys and placeholder values. Real API keys or project references must never be committed.
 
 ### Automated Environment Validation (`src/config/env.ts`)
 
 LaxmiLens implements a zero-trust startup validator:
 
-1. **Development/Staging Production-Lockout Guard:**  
-   If `VITE_APP_ENV` is `development` or `staging`, `VITE_SUPABASE_URL` is prohibited from containing the production reference `ujbbhvbtjfzsoalzmqve`.
-2. **Production Staging-Lockout Guard:**  
-   If `VITE_APP_ENV` is `production`, `VITE_SUPABASE_URL` is prohibited from containing the staging reference `vtnygwjcwbufsreswhjw`.
-3. **Reference-URL Consistency Check:**  
-   The project reference extracted from the URL subdomain must strictly match the declared mode (`vtnygwjcwbufsreswhjw` for staging, `ujbbhvbtjfzsoalzmqve` for production).
-4. **Placeholder Rejection:**  
+1. **Main Project Reference Consistency:**  
+   In `development` and `production`, the project reference extracted from `VITE_SUPABASE_URL` must match `ujbbhvbtjfzsoalzmqve` (or `localhost` for local Supabase emulator).
+2. **Legacy Staging Project Lockout:**  
+   Any attempt to connect to obsolete staging references (e.g., `vtnygwjcwbufsreswhjw`) is blocked with an explicit error.
+3. **Placeholder Rejection:**  
    Values containing `your-project-id`, `placeholder`, `your-publishable-key`, or brackets are rejected on boot.
-5. **Credential Confidentiality:**  
+4. **Credential Confidentiality:**  
    Error messages strictly suppress token strings and log only the violated rule name.
 
 ---
@@ -74,21 +71,10 @@ LaxmiLens implements a zero-trust startup validator:
 ### Standard Command
 
 ```bash
-npm run dev:staging
+npm run dev
 ```
 
-This launches Vite with `--mode staging`, instructing the runtime to load `.env.staging.local`. The application connects exclusively to `LaxmiLens-Staging` (`vtnygwjcwbufsreswhjw`).
-
-### The `npm run dev` Safety Lock
-
-If a developer executes `npm run dev` while `.env.local` retains production credentials (`ujbbhvbtjfzsoalzmqve`), the application will intentionally **fail to start** with:
-
-```text
-Environment validation failed: Development/staging environment must not connect to production Supabase project (ujbbhvbtjfzsoalzmqve). Please configure the staging project.
-```
-
-> [!IMPORTANT]
-> This failure is intentional. It acts as an automated circuit breaker preventing local experiments from writing to production ledgers. For local work, always use `npm run dev:staging`.
+This launches Vite in standard development mode, loading configuration from `.env.local`. The application connects to `LaxmiLens` (`ujbbhvbtjfzsoalzmqve`).
 
 ### Offline-First Development
 
@@ -96,56 +82,26 @@ LaxmiLens stores accounts, transactions, and mutations locally in IndexedDB via 
 
 ---
 
-## 5. Risk-Tiered Staging Validation Framework
+## 5. Development & Testing Protocol
 
-Not all changes require staging database verification. Validation overhead is apportioned by risk:
+Before committing changes, developers execute the standard verification gate:
 
+```bash
+# 1. Run full test suite
+npm test
+
+# 2. Strict TypeScript type check
+npm run typecheck
+
+# 3. Production build verification
+npm run build
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│                        CHANGE RISK CLASSIFICATION                      │
-│                                                                        │
-│   TIER 1: HIGH RISK (Mandatory Staging Verification)                   │
-│   ├── Database Migrations (DDL, Constraints, Indexes)                  │
-│   ├── Row Level Security (RLS) & Table Permissions                     │
-│   ├── Auth Lifecycle (Triggers, Profile Hooks, Session Refresh)        │
-│   ├── Financial Ledger Logic (Double-Entry, Versioning, Transfers)     │
-│   └── Offline Sync Outbox & Conflict Resolution                        │
-│                                                                        │
-│   TIER 2: LOW RISK (Fast-Tracked — Unit & Build Tests Only)            │
-│   ├── UI Component Styling & Layout Adjustments                        │
-│   ├── Copy, Typography & Static Assets                                 │
-│   └── Non-financial Client-Side Form Validations                       │
-└────────────────────────────────────────────────────────────────────────┘
-```
-
-### Staging Verification Runbook (For Tier 1 Changes)
-
-1. **Verify CLI Target:**
-   ```bash
-   npx supabase migration list --remote
-   ```
-   Confirm target is `LaxmiLens-Staging` (`vtnygwjcwbufsreswhjw`).
-2. **Apply Pending Migrations (Dry-Run First):**
-   ```bash
-   npx supabase db push --dry-run --remote
-   npx supabase db push --remote --yes
-   ```
-3. **Execute Local Staging App:**
-   ```bash
-   npm run dev:staging
-   ```
-4. **Functional Testing on Staging:**
-   - Sign up with a disposable staging email (e.g., `dev+test1@laxmilens.internal`).
-   - Confirm automatic profile generation and default category seeding.
-   - Create accounts, record transactions, and perform transfers.
-   - Click **Sync Now** and verify rows in Supabase Table Editor.
-   - Verify outbox acknowledgement (local outbox empties on success).
 
 ---
 
 ## 6. Production Release Protocol
 
-Every production release must strictly satisfy the **7-Step Release Gate**:
+Every release must strictly satisfy the release gate:
 
 ```
 [1. Git Diff] ──► [2. npm test] ──► [3. typecheck] ──► [4. npm run build]
@@ -178,8 +134,8 @@ Verify production tree-shaking, minification, and service worker generation:
 npm run build
 ```
 
-### 5. Migration Review Against Staging
-Confirm all migration files in `supabase/migrations/` have been verified on `LaxmiLens-Staging` without rollbacks or errors.
+### 5. Migration Review
+Confirm all migration files in `supabase/migrations/` have been reviewed without syntax or semantic errors.
 
 ### 6. Environment Separation Audit
 Verify that the production deployment environment (CI/CD pipeline or hosting platform settings) supplies the production credentials (`ujbbhvbtjfzsoalzmqve`) and sets `VITE_APP_ENV=production`.
@@ -189,37 +145,20 @@ Deploy the exact Git commit SHA that passed all previous steps. Building from un
 
 ---
 
-## 7. Production Verification Runbook
-
-Immediately following a production deployment:
-
-1. **Smoke Test:** Load the production web application URL; verify bundle load, asset integrity, and service worker registration.
-2. **Auth Verification:** Sign in with a designated operational administrative account. Verify active session persistence.
-3. **Database Connectivity:** Verify existing financial accounts and balances load without RLS permission errors.
-4. **Controlled Non-Destructive Ledger Test:**
-   - Create a dedicated non-destructive test account (e.g., `Prod Smoke Account`).
-   - Deposit a nominal verification balance (e.g., ₹10.00).
-   - Perform a manual cloud synchronization via **Sync Now**.
-   - Verify cloud persistence in Supabase table `accounts` with version 1.
-   - Archive the smoke test account.
-5. **Zero Data Loss Invariant:** Never modify, reassign, or delete existing user financial transactions or accounts.
-
----
-
-## 8. Database Safety & Migration Governance
+## 7. Database Safety & Migration Governance
 
 ### Active Migration Chain Rules
 
 1. **Sequential Timestamp Versioning:** Migration filenames follow `YYYYMMDDHHMMSS_description.sql`.
 2. **Archived Migrations:** Legacy or superseded migrations reside in `supabase/archive/` and are never pushed to active databases.
-3. **Immutability of Applied Migrations:** Once a migration has been deployed to production, it must never be modified or reordered. Subsequent changes require a new migration file.
+3. **Immutability of Applied Migrations:** Once a migration has been deployed, it must never be modified or reordered. Subsequent changes require a new migration file.
 
-### Production Migration Execution Rules
+### Remote Database Safety Rules
 
 - **No Automated Push:** CI/CD pipelines must not automatically run `supabase db push` against production without an explicit human approval gate.
 - **Mandatory Backup:** Before applying DDL changes involving constraints or column drops, create a manual backup via Supabase Dashboard -> Database -> Backups.
-- **Never Run `db reset` on Production:** The command `supabase db reset` drops all database schemas. It is strictly banned on production targets.
-- **CLI Target Verification:** Before executing production CLI tasks, verify:
+- **Never Run `db reset` on Remote:** The command `supabase db reset` drops all database schemas. It is strictly banned on remote targets.
+- **CLI Target Verification:** Before executing CLI tasks, verify:
   ```bash
   npx supabase projects list
   ```
@@ -227,7 +166,7 @@ Immediately following a production deployment:
 
 ---
 
-## 9. Rollback & Disaster Recovery Procedures
+## 8. Rollback Procedures
 
 ### Scenario A: Frontend Application Defect
 If a bug occurs in client code without database schema changes:
@@ -238,15 +177,14 @@ If a bug occurs in client code without database schema changes:
 If a newly pushed migration causes runtime errors:
 1. **Do not run `db reset`.**
 2. Author an additive forward-rollback migration (e.g., `YYYYMMDDHHMMSS_revert_previous_change.sql`) that safely drops the problematic constraint, trigger, or column.
-3. Test the revert migration on `LaxmiLens-Staging`.
-4. Apply the revert migration to production.
+3. Apply the revert migration.
 
 ---
 
-## 10. Operational Summary & Verification Checklist
+## 9. Operational Summary & Verification Checklist
 
-- [x] **Staging Project Connected:** `vtnygwjcwbufsreswhjw` verified healthy and active.
-- [x] **Production Project Isolated:** `ujbbhvbtjfzsoalzmqve` unlinked and guarded.
-- [x] **Local Secret Hygiene:** `.env.staging.local` and `supabase/.temp/` gitignored.
+- [x] **Main Project Connected:** `ujbbhvbtjfzsoalzmqve` configured for local development and production.
+- [x] **Local Secret Hygiene:** `.env.local` and `supabase/.temp/` gitignored.
 - [x] **Startup Circuit Breaker:** `src/config/env.ts` active and covered by unit tests.
+- [x] **Standard Dev Command:** `npm run dev` standard workflow.
 - [x] **Canonical Documentation:** Preserved in `docs/engineering/ENVIRONMENT_AND_RELEASE_WORKFLOW.md`.

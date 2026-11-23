@@ -11,6 +11,7 @@ import {
   SyncInProgressError,
   SyncUnresolvedCategoryError
 } from '@/infrastructure/sync/errors/SyncErrors';
+import { ICategoryResolver } from '@/infrastructure/sync/CategoryMappingService';
 
 /**
  * TransactionSyncDispatcher
@@ -37,7 +38,8 @@ export class TransactionSyncDispatcher {
   constructor(
     private readonly transactionRepo: ISupabaseTransactionRepository,
     private readonly authPort: AuthPort,
-    private readonly outboxManager?: OutboxManager
+    private readonly outboxManager?: OutboxManager,
+    private readonly categoryResolver?: ICategoryResolver
   ) {}
 
   /**
@@ -127,23 +129,30 @@ export class TransactionSyncDispatcher {
       }
     }
 
-    // 6. Category Identity Guard (Local payload check)
-    // Category reconciliation is unresolved: reject any transaction with a non-null category_id
+    // 6. Category Identity Guard & Resolution
     const rawCategory = entry.payload.category_id ?? entry.payload.categoryId;
+    let resolvedCategoryId: string | null = null;
+
     if (rawCategory !== null && rawCategory !== undefined) {
-      throw new SyncUnresolvedCategoryError(
-        `Cannot sync transaction '${entry.entityId}': Category reference '${rawCategory}' cannot be resolved to cloud identity. Categorized transaction synchronization is blocked until category synchronization is implemented.`,
-        String(rawCategory)
-      );
+      const rawCatStr = String(rawCategory);
+      if (this.categoryResolver) {
+        resolvedCategoryId = await this.categoryResolver.resolveCategory(rawCatStr, currentUser.id);
+      }
+      if (!resolvedCategoryId) {
+        throw new SyncUnresolvedCategoryError(
+          `Cannot sync transaction '${entry.entityId}': Category reference '${rawCatStr}' cannot be resolved to cloud identity. Categorized transaction synchronization is blocked until category synchronization is implemented.`,
+          rawCatStr
+        );
+      }
     }
 
     // 7. Route to appropriate operation
     if (entry.operation === 'INSERT') {
-      return await this.dispatchInsert(entry, currentUser.id);
+      return await this.dispatchInsert(entry, currentUser.id, resolvedCategoryId);
     }
 
     if (entry.operation === 'UPDATE') {
-      return await this.dispatchUpdate(entry, currentUser.id);
+      return await this.dispatchUpdate(entry, currentUser.id, resolvedCategoryId);
     }
 
     return await this.dispatchSoftDelete(entry, currentUser.id);
@@ -151,17 +160,14 @@ export class TransactionSyncDispatcher {
 
   private async dispatchInsert(
     entry: LocalOutboxRecord,
-    authenticatedUserId: string
+    authenticatedUserId: string,
+    resolvedCategoryId: string | null
   ): Promise<CloudTransactionRow> {
-    const cloudRow = TransactionMapper.mapCreatePayload(entry.payload);
-
-    // Double-check category on mapped row
-    if (cloudRow.category_id !== null && cloudRow.category_id !== undefined) {
-      throw new SyncUnresolvedCategoryError(
-        `Cannot sync transaction '${cloudRow.id}': Category reference '${cloudRow.category_id}' cannot be resolved to cloud identity.`,
-        cloudRow.category_id
-      );
-    }
+    const payloadWithResolvedCategory = {
+      ...entry.payload,
+      category_id: resolvedCategoryId
+    };
+    const cloudRow = TransactionMapper.mapCreatePayload(payloadWithResolvedCategory);
 
     const persisted = await this.transactionRepo.insert(cloudRow);
 
@@ -176,15 +182,23 @@ export class TransactionSyncDispatcher {
 
   private async dispatchUpdate(
     entry: LocalOutboxRecord,
-    authenticatedUserId: string
+    authenticatedUserId: string,
+    resolvedCategoryId: string | null
   ): Promise<CloudTransactionRow> {
     const entityId = entry.entityId;
     const { expectedVersion } = this.validateAndDeriveExpectedVersion(entry.payload, 'update');
-    const patch = TransactionMapper.mapUpdatePayload(entry.payload);
+
+    const rawCategory = entry.payload.category_id ?? entry.payload.categoryId;
+    const updatePayload = {
+      ...entry.payload
+    };
+    if (rawCategory !== undefined) {
+      updatePayload.category_id = resolvedCategoryId;
+    }
+
+    const patch = TransactionMapper.mapUpdatePayload(updatePayload);
 
     // Call updatePartial with validated canonical expectedVersion.
-    // If the cloud transaction has an existing category, repository.updatePartial()
-    // will detect it and reject with SyncUnresolvedCategoryError.
     const persisted = await this.transactionRepo.updatePartial(
       entityId,
       authenticatedUserId,
