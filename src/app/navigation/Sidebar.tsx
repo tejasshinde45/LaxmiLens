@@ -11,11 +11,13 @@ import {
   PanelLeftOpen,
   Sparkles,
   HandCoins,
-  Repeat
+  Repeat,
+  Bell
 } from 'lucide-react';
 import { NavigationItem } from './NavigationItem';
 import { IconButton } from '@/components/ui/IconButton';
 import { Separator } from '@/components/ui/Separator';
+import { useNotifications } from '@/features/notifications/hooks/useNotifications';
 import { cn } from '@/utils/cn';
 
 export interface SidebarProps {
@@ -29,6 +31,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleCollapse,
   className
 }) => {
+  const { unreadCount } = useNotifications();
+
   const mainMenuItems = [
     { label: 'Overview', to: '/dashboard', icon: LayoutDashboard },
     { label: 'Transactions', to: '/transactions', icon: ArrowLeftRight },
@@ -41,7 +45,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const manageItems = [
     { label: 'Recurring', to: '/recurring', icon: Repeat },
     { label: 'Calendar', to: '/calendar', icon: CalendarDays },
-    { label: 'Reports', to: '/reports', icon: FileText }
+    { label: 'Reports', to: '/reports', icon: FileText },
+    {
+      label: 'Notifications',
+      to: '/notifications',
+      icon: Bell,
+      badge: unreadCount > 0 ? unreadCount : undefined
+    }
   ];
 
   const preferenceItems = [
@@ -122,6 +132,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               label={item.label}
               to={item.to}
               icon={item.icon}
+              badge={item.badge}
               isCollapsed={isCollapsed}
             />
           ))}

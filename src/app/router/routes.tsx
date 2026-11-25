@@ -16,6 +16,7 @@ import { RecurringPage } from '@/features/recurring/RecurringPage';
 import { AnalyticsPage } from '@/features/analytics/AnalyticsPage';
 import { CalendarPage } from '@/features/calendar/CalendarPage';
 import { ReportsPage } from '@/features/reports/ReportsPage';
+import { NotificationsPage } from '@/features/notifications/NotificationsPage';
 import { SettingsPage } from '@/features/settings/SettingsPage';
 
 export const router = createBrowserRouter([
@@ -95,6 +96,10 @@ export const router = createBrowserRouter([
           {
             path: 'reports',
             element: <ReportsPage />
+          },
+          {
+            path: 'notifications',
+            element: <NotificationsPage />
           },
           {
             path: 'settings',

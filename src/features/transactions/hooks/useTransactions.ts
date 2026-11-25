@@ -23,6 +23,7 @@ import {
 } from '../schemas/transactionSchemas';
 import { formatPaiseToINR } from '@/utils/formatters';
 import { createUserId } from '@/domain/value-objects/Identifiers';
+import { triggerAlertEvaluationSafely } from '@/features/notifications/services/financialAlertEvaluator';
 
 // Fallback singleton adapters for static / isolated test contexts
 const fallbackTransactionRepo = new DexieTransactionRepository();
@@ -219,6 +220,9 @@ export function useTransactions(client = globalQueryClient) {
     },
     onSuccess: (tx) => {
       invalidateFinancialState();
+      if (user?.id && tx.type !== 'transfer') {
+        triggerAlertEvaluationSafely(user.id, client);
+      }
       toast.success(
         tx.type === 'transfer'
           ? 'Transfer recorded successfully'
@@ -272,6 +276,9 @@ export function useTransactions(client = globalQueryClient) {
     },
     onSuccess: () => {
       invalidateFinancialState();
+      if (user?.id) {
+        triggerAlertEvaluationSafely(user.id, client);
+      }
       toast.success('Transaction updated successfully');
     },
     onError: (err) => {
@@ -296,6 +303,9 @@ export function useTransactions(client = globalQueryClient) {
     },
     onSuccess: () => {
       invalidateFinancialState();
+      if (user?.id) {
+        triggerAlertEvaluationSafely(user.id, client);
+      }
       toast.success('Transaction deleted');
     },
     onError: (err) => {

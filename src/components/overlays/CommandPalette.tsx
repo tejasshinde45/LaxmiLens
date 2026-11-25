@@ -13,7 +13,8 @@ import {
   PlusCircle,
   X,
   HandCoins,
-  Repeat
+  Repeat,
+  Bell
 } from 'lucide-react';
 import { Dialog, DialogPortal, DialogOverlay } from '@/components/ui/Dialog';
 import { cn } from '@/utils/cn';
@@ -153,6 +154,17 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         action: () => {
           onClose();
           navigate('/reports');
+        }
+      },
+      {
+        id: 'nav-notifications',
+        title: 'Notifications',
+        description: 'View payment alerts, budget warnings, and alert history',
+        category: 'Navigation',
+        icon: Bell,
+        action: () => {
+          onClose();
+          navigate('/notifications');
         }
       },
       {

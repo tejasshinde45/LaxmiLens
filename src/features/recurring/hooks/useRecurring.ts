@@ -34,6 +34,7 @@ import {
 } from '@/application';
 import { createUserId } from '@/domain/value-objects/Identifiers';
 import { getLocalTodayDateString } from '@/domain/services/RecurrenceScheduleService';
+import { triggerAlertEvaluationSafely } from '@/features/notifications/services/financialAlertEvaluator';
 import {
   RecurringRuleFormValues,
   parseRecurringAmountToPaise
@@ -235,6 +236,9 @@ export function useRecurring(
       client.invalidateQueries({ queryKey: ['accounts', user?.id] });
       client.invalidateQueries({ queryKey: ['budgets', user?.id] });
       client.invalidateQueries({ queryKey: ['pendingOutboxTxIds', user?.id] });
+    }
+    if (user?.id) {
+      triggerAlertEvaluationSafely(user.id, client);
     }
   };
 

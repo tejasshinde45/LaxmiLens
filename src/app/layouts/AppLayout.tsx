@@ -5,11 +5,14 @@ import { Header } from '../navigation/Header';
 import { BottomNavigation } from '../navigation/BottomNavigation';
 import { CommandPalette } from '@/components/overlays/CommandPalette';
 import { QuickAddModal } from '@/components/forms/QuickAddModal';
+import { useInitialFinancialAlertEvaluation } from '@/features/notifications/hooks/useInitialFinancialAlertEvaluation';
 
 export const AppLayout: React.FC = () => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
+
+  useInitialFinancialAlertEvaluation();
 
   // Global Ctrl+K / Cmd+K keyboard shortcut
   useEffect(() => {

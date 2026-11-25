@@ -7,6 +7,8 @@ import {
   UnifiedSyncResult
 } from '@/infrastructure/sync/ManualSyncCoordinator';
 import { defaultDatabaseManager } from '@/infrastructure/database/local/DatabaseManager';
+import { notificationQueryKeys } from '@/features/notifications/hooks/notificationQueryKeys';
+import { triggerAlertEvaluationSafely } from '@/features/notifications/services/financialAlertEvaluator';
 
 export function useAccountSync(client = globalQueryClient) {
   // Safely extract authentication context
@@ -61,17 +63,33 @@ export function useAccountSync(client = globalQueryClient) {
         }
       },
       onSuccess: (result) => {
-        // Invalidate relevant queries so UI reflects updated balances, transactions, categories, budgets, borrowings, and outbox state
-        client.invalidateQueries({ queryKey: ['accounts', user?.id] });
-        client.invalidateQueries({ queryKey: ['categories', user?.id] });
-        client.invalidateQueries({ queryKey: ['transactions', user?.id] });
-        client.invalidateQueries({ queryKey: ['budgets', user?.id] });
-        client.invalidateQueries({ queryKey: ['borrowings', user?.id] });
-        client.invalidateQueries({ queryKey: ['recurring', user?.id] });
-        client.invalidateQueries({ queryKey: ['pendingOutboxBudgetIds', user?.id] });
-        client.invalidateQueries({ queryKey: ['pendingOutboxTxIds', user?.id] });
-        client.invalidateQueries({ queryKey: ['pendingOutboxRecurringIds', user?.id] });
-        client.invalidateQueries({ queryKey: pendingQueryKey });
+        const hasFailures = result.failedCount > 0;
+        const totalMoved = result.syncedCount + result.pulledCount;
+
+        // Preserve financial invalidations when sync succeeded or processed updates
+        if (!hasFailures || totalMoved > 0) {
+          client.invalidateQueries({ queryKey: ['accounts', user?.id] });
+          client.invalidateQueries({ queryKey: ['categories', user?.id] });
+          client.invalidateQueries({ queryKey: ['transactions', user?.id] });
+          client.invalidateQueries({ queryKey: ['budgets', user?.id] });
+          client.invalidateQueries({ queryKey: ['borrowings', user?.id] });
+          client.invalidateQueries({ queryKey: ['recurring', user?.id] });
+          client.invalidateQueries({ queryKey: ['pendingOutboxBudgetIds', user?.id] });
+          client.invalidateQueries({ queryKey: ['pendingOutboxTxIds', user?.id] });
+          client.invalidateQueries({ queryKey: ['pendingOutboxRecurringIds', user?.id] });
+          client.invalidateQueries({ queryKey: pendingQueryKey });
+        }
+
+        // Refresh notification & preference caches only after successful synchronization
+        if (!hasFailures && user?.id) {
+          client.invalidateQueries({ queryKey: notificationQueryKeys.all(user.id) });
+          client.invalidateQueries({ queryKey: notificationQueryKeys.preferences(user.id) });
+          client.invalidateQueries({ queryKey: notificationQueryKeys.pendingOutbox(user.id) });
+
+          if (totalMoved > 0) {
+            triggerAlertEvaluationSafely(user.id, client);
+          }
+        }
 
         if (result.syncedCount > 0 && result.failedCount === 0) {
           toast.success(

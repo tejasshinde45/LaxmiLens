@@ -20,6 +20,7 @@ import {
 } from '@/application';
 import { parseBudgetPeriod } from '@/application/services/BudgetSpendingService';
 import { createUserId } from '@/domain/value-objects/Identifiers';
+import { triggerAlertEvaluationSafely } from '@/features/notifications/services/financialAlertEvaluator';
 import {
   CreateBudgetFormValues,
   EditBudgetFormValues,
@@ -178,6 +179,9 @@ export function useBudgets(
     client.invalidateQueries({ queryKey: ['budgets', user?.id] });
     client.invalidateQueries({ queryKey: ['syncPendingCount', user?.id] });
     client.invalidateQueries({ queryKey: pendingOutboxKey });
+    if (user?.id) {
+      triggerAlertEvaluationSafely(user.id, client);
+    }
   };
 
   const createBudgetMutation = useMutation<BudgetResponseDTO, Error, CreateBudgetFormValues>(

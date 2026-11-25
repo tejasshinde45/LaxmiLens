@@ -13,9 +13,11 @@ import {
   Settings,
   X,
   HandCoins,
-  Repeat
+  Repeat,
+  Bell
 } from 'lucide-react';
 import { Dialog, DialogPortal, DialogOverlay } from '@/components/ui/Dialog';
+import { useNotifications } from '@/features/notifications/hooks/useNotifications';
 import { cn } from '@/utils/cn';
 
 export interface BottomNavigationProps {
@@ -29,6 +31,7 @@ export const BottomNavigation: React.FC<BottomNavigationProps> = ({
 }) => {
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const navigate = useNavigate();
+  const { unreadCount } = useNotifications();
 
   const handleMoreNavigation = (path: string) => {
     setIsMoreOpen(false);
@@ -42,6 +45,13 @@ export const BottomNavigation: React.FC<BottomNavigationProps> = ({
     { label: 'Analytics', path: '/analytics', icon: PieChart, desc: 'Spending trends & breakdown' },
     { label: 'Calendar', path: '/calendar', icon: CalendarDays, desc: 'Upcoming scheduled events' },
     { label: 'Reports', path: '/reports', icon: FileText, desc: 'Financial summaries & exports' },
+    {
+      label: 'Notifications',
+      path: '/notifications',
+      icon: Bell,
+      desc: 'Payment alerts & budget warnings',
+      badge: unreadCount > 0 ? unreadCount : undefined
+    },
     { label: 'Settings', path: '/settings', icon: Settings, desc: 'Preferences, sync & security' }
   ];
 
@@ -169,10 +179,15 @@ export const BottomNavigation: React.FC<BottomNavigationProps> = ({
                     <div className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-[#242424] text-[#D6AD60]">
                       <Icon className="h-4.5 w-4.5" />
                     </div>
-                    <div className="flex flex-col">
+                    <div className="flex flex-col flex-1">
                       <span className="text-sm font-medium text-[#F5F1E8]">{item.label}</span>
                       <span className="text-xs text-[#858078]">{item.desc}</span>
                     </div>
+                    {item.badge !== undefined && (
+                      <span className="rounded-full bg-[#D6AD60]/20 px-2 py-0.5 text-[11px] font-bold font-tabular text-[#D6AD60]">
+                        {item.badge}
+                      </span>
+                    )}
                   </button>
                 );
               })}

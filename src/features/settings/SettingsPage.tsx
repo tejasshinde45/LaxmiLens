@@ -3,6 +3,7 @@ import { PageHeader } from '@/components/common/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { APP_CONFIG } from '@/config/constants';
+import { NotificationPreferencesSection } from '@/features/notifications/components/NotificationPreferencesSection';
 
 export const SettingsPage: React.FC = () => {
   return (
@@ -13,6 +14,9 @@ export const SettingsPage: React.FC = () => {
       />
 
       <div className="space-y-4 max-w-4xl">
+        {/* Financial Alert & Notification Preferences */}
+        <NotificationPreferencesSection />
+
         {/* Currency & Financial Configuration */}
         <Card variant="surface" className="space-y-4 p-5">
           <div className="flex items-center gap-2.5 text-sm font-semibold text-[#F5F1E8]">
