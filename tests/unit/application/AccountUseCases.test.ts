@@ -5,13 +5,17 @@ import { ArchiveAccountUseCase } from '@/application/use-cases/accounts/ArchiveA
 import { RestoreAccountUseCase } from '@/application/use-cases/accounts/RestoreAccountUseCase';
 import { GetAccountsWithBalanceUseCase } from '@/application/use-cases/accounts/GetAccountsWithBalanceUseCase';
 import { GetAccountDetailsUseCase } from '@/application/use-cases/accounts/GetAccountDetailsUseCase';
+import {
+  EnsurePersonalBorrowingsAccountUseCase,
+  PERSONAL_BORROWINGS_SYSTEM_TAG
+} from '@/application/use-cases/borrowings/EnsurePersonalBorrowingsAccountUseCase';
 
 import { AccountRepository } from '@/domain/repositories/AccountRepository';
 import { TransactionRepository, TransactionFilter } from '@/domain/repositories/TransactionRepository';
 import { SyncPort, OutboxEntry, SyncResult } from '@/application/ports/SyncPort';
 import { Account } from '@/domain/entities/Account';
 import { Transaction } from '@/domain/entities/Transaction';
-import { AccountId, TransactionId, UserId, createTransactionId } from '@/domain/value-objects/Identifiers';
+import { AccountId, TransactionId, UserId, createAccountId, createTransactionId } from '@/domain/value-objects/Identifiers';
 import { AccountNotFoundError, UnauthorizedEntityAccessError } from '@/domain/errors/DomainErrors';
 
 // Test Double: In-Memory Account Repository
@@ -434,6 +438,98 @@ describe('Account Management Use Cases (Milestone 5.1)', () => {
       await expect(getDetailsUseCase.execute(acc.id, otherUserId)).rejects.toThrow(
         UnauthorizedEntityAccessError
       );
+    });
+  });
+
+  describe('EnsurePersonalBorrowingsAccountUseCase (System Account Identity)', () => {
+    const dummyUnitOfWork = {
+      run: async <T>(fn: () => Promise<T>): Promise<T> => await fn()
+    };
+
+    it('creates aggregate liability account with systemTag and outbox payload', async () => {
+      const ensureUseCase = new EnsurePersonalBorrowingsAccountUseCase(
+        accountRepo,
+        syncPort,
+        dummyUnitOfWork
+      );
+
+      const account = await ensureUseCase.execute(testUserId);
+      expect(account.systemTag).toBe(PERSONAL_BORROWINGS_SYSTEM_TAG);
+      expect(account.name).toBe('Personal Borrowings');
+      expect(account.accountType).toBe('other');
+      expect(account.isPersonalBorrowingsLiability()).toBe(true);
+
+      const enqueued = syncPort.enqueued.find(
+        (e) => e.entity === 'accounts' && e.entityId === account.id
+      );
+      expect(enqueued).toBeDefined();
+      expect(enqueued?.payload.system_tag).toBe('personal_borrowings');
+    });
+
+    it('reliably reuses the system account even after user renames the account', async () => {
+      const ensureUseCase = new EnsurePersonalBorrowingsAccountUseCase(
+        accountRepo,
+        syncPort,
+        dummyUnitOfWork
+      );
+      const updateUseCase = new UpdateAccountUseCase(accountRepo, syncPort);
+
+      // 1. Ensure initial account created
+      const initialAccount = await ensureUseCase.execute(testUserId);
+      expect(initialAccount.systemTag).toBe('personal_borrowings');
+
+      // 2. User renames the account to "Loans from Friends & Family"
+      const updatedAccount = await updateUseCase.execute({
+        id: initialAccount.id,
+        userId: testUserId,
+        name: 'Loans from Friends & Family'
+      });
+      expect(updatedAccount.name).toBe('Loans from Friends & Family');
+      expect(updatedAccount.systemTag).toBe('personal_borrowings');
+
+      // 3. EnsurePersonalBorrowingsAccountUseCase finds the renamed account by systemTag
+      const resolvedAccount = await ensureUseCase.execute(testUserId);
+      expect(resolvedAccount.id).toBe(initialAccount.id);
+      expect(resolvedAccount.name).toBe('Loans from Friends & Family');
+      expect(resolvedAccount.systemTag).toBe('personal_borrowings');
+    });
+
+    it('does not conflate an untagged account named "Personal Borrowings" with the system account', async () => {
+      const ensureUseCase = new EnsurePersonalBorrowingsAccountUseCase(
+        accountRepo,
+        syncPort,
+        dummyUnitOfWork
+      );
+
+      // Pre-existing account named "Personal Borrowings" but with systemTag = null
+      const legacyAccount = new Account({
+        id: createAccountId('legacy-acc-123'),
+        userId: testUserId,
+        name: 'Personal Borrowings',
+        accountType: 'bank',
+        openingBalancePaise: 500000,
+        currency: 'INR',
+        systemTag: null,
+        isArchived: false,
+        version: 1,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
+      await accountRepo.save(legacyAccount);
+
+      // Executing ensure should NOT return the legacy account; it must provision a distinct system account
+      const systemAccount = await ensureUseCase.execute(testUserId);
+      expect(systemAccount.id).not.toBe(legacyAccount.id);
+      expect(systemAccount.systemTag).toBe(PERSONAL_BORROWINGS_SYSTEM_TAG);
+      expect(systemAccount.accountType).toBe('other');
+      expect(systemAccount.openingBalancePaise).toBe(0);
+
+      // Legacy account remains intact with original properties
+      const refetchedLegacy = await accountRepo.findById(legacyAccount.id, testUserId);
+      expect(refetchedLegacy?.systemTag).toBeUndefined();
+      expect(refetchedLegacy?.isSystemAccount()).toBe(false);
+      expect(refetchedLegacy?.accountType).toBe('bank');
+      expect(refetchedLegacy?.openingBalancePaise).toBe(500000);
     });
   });
 });

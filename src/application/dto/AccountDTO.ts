@@ -8,6 +8,7 @@ export interface CreateAccountDTO {
   color?: string;
   icon?: string;
   notes?: string;
+  systemTag?: string;
 
   // Compatibility fields
   type?: 'cash' | 'bank' | 'savings' | 'credit_card' | 'wallet' | 'other' | 'upi';
@@ -23,6 +24,7 @@ export interface UpdateAccountDTO {
   color?: string;
   icon?: string;
   notes?: string;
+  systemTag?: string;
   isArchived?: boolean;
 }
 
@@ -38,6 +40,7 @@ export interface AccountResponseDTO {
   color?: string;
   icon?: string;
   notes?: string;
+  systemTag?: string;
   isArchived: boolean;
   version: number;
   createdAt: string;

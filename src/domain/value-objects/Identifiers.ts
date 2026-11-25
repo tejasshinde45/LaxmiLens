@@ -6,6 +6,9 @@ export type AccountId = Brand<string, 'AccountId'>;
 export type CategoryId = Brand<string, 'CategoryId'>;
 export type BudgetId = Brand<string, 'BudgetId'>;
 export type RecurringRuleId = Brand<string, 'RecurringRuleId'>;
+export type LenderId = Brand<string, 'LenderId'>;
+export type BorrowingId = Brand<string, 'BorrowingId'>;
+export type RepaymentId = Brand<string, 'RepaymentId'>;
 export type UserId = Brand<string, 'UserId'>;
 
 export const createTransactionId = (id: string): TransactionId => id as TransactionId;
@@ -13,6 +16,9 @@ export const createAccountId = (id: string): AccountId => id as AccountId;
 export const createCategoryId = (id: string): CategoryId => id as CategoryId;
 export const createBudgetId = (id: string): BudgetId => id as BudgetId;
 export const createRecurringRuleId = (id: string): RecurringRuleId => id as RecurringRuleId;
+export const createLenderId = (id: string): LenderId => id as LenderId;
+export const createBorrowingId = (id: string): BorrowingId => id as BorrowingId;
+export const createRepaymentId = (id: string): RepaymentId => id as RepaymentId;
 export const createUserId = (id: string): UserId => id as UserId;
 
 export const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

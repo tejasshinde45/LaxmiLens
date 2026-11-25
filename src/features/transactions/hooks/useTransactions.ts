@@ -167,10 +167,11 @@ export function useTransactions(client = globalQueryClient) {
 
   const summary = computeTransactionSummary(transactions);
 
-  // Invalidate queries across transactions, accounts, and outbox
+  // Invalidate queries across transactions, accounts, budgets, and outbox
   const invalidateFinancialState = () => {
     client.invalidateQueries({ queryKey: ['transactions', user?.id] });
     client.invalidateQueries({ queryKey: ['accounts', user?.id] });
+    client.invalidateQueries({ queryKey: ['budgets', user?.id] });
     client.invalidateQueries({ queryKey: ['syncPendingCount', user?.id] });
     client.invalidateQueries({ queryKey: pendingOutboxKey });
   };

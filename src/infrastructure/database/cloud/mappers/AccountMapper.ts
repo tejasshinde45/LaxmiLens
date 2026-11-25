@@ -17,6 +17,7 @@ export interface CloudAccountRow {
   color: string | null;
   icon: string | null;
   notes: string | null;
+  system_tag?: string | null;
   is_archived: boolean;
   version: number;
   created_at?: string;
@@ -52,6 +53,7 @@ export class AccountMapper {
       color: row.color ?? undefined,
       icon: row.icon ?? undefined,
       notes: row.notes ?? undefined,
+      systemTag: row.system_tag ?? undefined,
       isArchived: Boolean(row.is_archived),
       version: row.version,
       createdAt: row.created_at ? new Date(row.created_at) : undefined,
@@ -78,6 +80,7 @@ export class AccountMapper {
       color: account.color ?? null,
       icon: account.icon ?? null,
       notes: account.notes ?? null,
+      system_tag: account.systemTag ?? null,
       is_archived: account.isArchived,
       version: account.version,
       created_at: account.createdAt.toISOString(),
@@ -148,6 +151,11 @@ export class AccountMapper {
         ? payload.notes.trim()
         : null;
 
+    const systemTag =
+      typeof payload.system_tag === 'string' && payload.system_tag.trim().length > 0
+        ? payload.system_tag.trim()
+        : null;
+
     return {
       id,
       user_id: userId,
@@ -159,6 +167,7 @@ export class AccountMapper {
       color,
       icon,
       notes,
+      system_tag: systemTag,
       is_archived: Boolean(payload.is_archived),
       version
     };
@@ -232,6 +241,7 @@ export class AccountMapper {
           : null;
     }
 
+    // system_tag is immutable on UPDATE and strictly excluded from cloud update patches
     if (payload.is_archived !== undefined) {
       patch.is_archived = Boolean(payload.is_archived);
     }

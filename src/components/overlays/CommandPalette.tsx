@@ -11,7 +11,8 @@ import {
   FileText,
   Settings,
   PlusCircle,
-  X
+  X,
+  HandCoins
 } from 'lucide-react';
 import { Dialog, DialogPortal, DialogOverlay } from '@/components/ui/Dialog';
 import { cn } from '@/utils/cn';
@@ -85,6 +86,17 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         action: () => {
           onClose();
           navigate('/accounts');
+        }
+      },
+      {
+        id: 'nav-borrowings',
+        title: 'Personal Borrowings',
+        description: 'Track money borrowed from friends, relatives, and repayments',
+        category: 'Navigation',
+        icon: HandCoins,
+        action: () => {
+          onClose();
+          navigate('/borrowings');
         }
       },
       {

@@ -18,6 +18,7 @@ export interface LocalAccountRecord {
   color?: string;
   icon?: string;
   notes?: string;
+  systemTag?: string | null;
   isArchived: boolean;
   version: number;
   createdAt: string;
@@ -77,13 +78,17 @@ export interface LocalTransactionRecord {
 }
 
 export interface LocalBudgetRecord {
-  id: string;
+  id: string; // UUID
+  userId: string;
   categoryId: string;
   period: string; // YYYY-MM
-  limitInPaise: number;
+  limitPaise: number;
   version: number;
   createdAt: string;
   updatedAt: string;
+
+  // Compatibility fields
+  limitInPaise?: number;
 }
 
 export interface LocalRecurringRuleRecord {
@@ -107,10 +112,60 @@ export interface LocalRecurringRuleRecord {
   updatedAt: string;
 }
 
+export interface LocalLenderRecord {
+  id: string; // UUID
+  userId: string;
+  name: string;
+  phone?: string;
+  email?: string;
+  notes?: string;
+  isArchived: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LocalBorrowingRecord {
+  id: string; // UUID
+  userId: string;
+  lenderId: string;
+  amountPaise: number;
+  borrowingDate: string; // ISO string
+  dueDate?: string | null;
+  receivingAccountId: string;
+  transactionId: string;
+  status: 'active' | 'repaid';
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LocalBorrowingRepaymentRecord {
+  id: string; // UUID
+  userId: string;
+  borrowingId: string;
+  lenderId: string;
+  amountPaise: number;
+  repaymentDate: string; // ISO string
+  paymentAccountId: string;
+  transactionId: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface LocalOutboxRecord {
   id?: number;
   userId: string;
-  entity: 'profiles' | 'accounts' | 'transactions' | 'categories' | 'budgets' | 'recurring_rules';
+  entity:
+    | 'profiles'
+    | 'accounts'
+    | 'transactions'
+    | 'categories'
+    | 'budgets'
+    | 'recurring_rules'
+    | 'lenders'
+    | 'borrowings'
+    | 'borrowing_repayments';
   entityId: string;
   operation: 'INSERT' | 'UPDATE' | 'DELETE';
   payload: Record<string, unknown>;

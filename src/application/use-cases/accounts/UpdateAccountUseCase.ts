@@ -36,6 +36,7 @@ export class UpdateAccountUseCase {
       color: dto.color ?? existing.color,
       icon: dto.icon ?? existing.icon,
       notes: dto.notes !== undefined ? dto.notes : existing.notes,
+      systemTag: existing.systemTag,
       isArchived: dto.isArchived ?? existing.isArchived,
       version: existing.version + 1,
       createdAt: existing.createdAt,
@@ -57,6 +58,7 @@ export class UpdateAccountUseCase {
         color: updated.color,
         icon: updated.icon,
         notes: updated.notes,
+        system_tag: updated.systemTag ?? null,
         is_archived: updated.isArchived,
         version: updated.version
       },
@@ -86,6 +88,7 @@ export class UpdateAccountUseCase {
       color: updated.color,
       icon: updated.icon,
       notes: updated.notes,
+      systemTag: updated.systemTag,
       isArchived: updated.isArchived,
       version: updated.version,
       createdAt: updated.createdAt.toISOString(),

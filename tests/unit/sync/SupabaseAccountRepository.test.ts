@@ -449,6 +449,37 @@ describe('SupabaseAccountRepository', () => {
 
       await expect(repo.insert(sampleAccount)).rejects.toThrow(/Persisted row ID/);
     });
+
+    it('provisions personal borrowings system account via authorized SECURITY DEFINER RPC', async () => {
+      const systemAccountRow: CloudAccountRow = {
+        ...sampleAccount,
+        id: validId,
+        user_id: validUserId,
+        name: 'Personal Borrowings',
+        account_type: 'other',
+        opening_balance_paise: 0,
+        system_tag: 'personal_borrowings'
+      };
+
+      const rpcMock = vi.fn().mockResolvedValue({
+        data: systemAccountRow,
+        error: null
+      });
+      mockClient.rpc = rpcMock;
+
+      const result = await repo.insert(systemAccountRow);
+
+      expect(mockClient.rpc).toHaveBeenCalledWith('provision_personal_borrowings_account', {
+        p_account_id: validId,
+        p_name: 'Personal Borrowings',
+        p_currency: 'INR',
+        p_color: '#10B981',
+        p_icon: 'Landmark',
+        p_notes: 'Primary salary'
+      });
+      expect(result).toEqual(systemAccountRow);
+      expect(mockClient.from).not.toHaveBeenCalled();
+    });
   });
 
   describe('updatePartial', () => {
@@ -494,6 +525,37 @@ describe('SupabaseAccountRepository', () => {
       expect(eqUserMock).toHaveBeenCalledWith('user_id', validUserId);
       expect(eqVersionMock).toHaveBeenCalledWith('version', 1);
       expect(result).toEqual(updatedRow);
+    });
+
+    it('strips system_tag from update patch to ensure system-account identity is immutable on cloud updates', async () => {
+      const updateMock = vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              select: vi.fn().mockReturnValue({
+                maybeSingle: vi.fn().mockResolvedValue({
+                  data: { ...sampleAccount, name: 'Renamed System Account', version: 2 },
+                  error: null
+                })
+              })
+            })
+          })
+        })
+      });
+
+      mockClient.from.mockReturnValue({ update: updateMock });
+
+      const patch = {
+        name: 'Renamed System Account',
+        system_tag: 'personal_borrowings',
+        version: 2
+      } as any;
+
+      await repo.updatePartial(validId, validUserId, patch, 1);
+
+      expect(updateMock).toHaveBeenCalled();
+      const passedPayload = updateMock.mock.calls[0][0];
+      expect(passedPayload).not.toHaveProperty('system_tag');
     });
 
     it('treats 0 rows updated as idempotent success if cloud version already equals target version with matching data', async () => {

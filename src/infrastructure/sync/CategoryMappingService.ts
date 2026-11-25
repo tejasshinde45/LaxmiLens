@@ -14,6 +14,7 @@ export interface ICategoryResolver {
   resolveCategory(localId: string, userId: string): Promise<string | null>;
   getMapping(localId: string, userId: string): Promise<string | null>;
   setMapping(localId: string, cloudUuid: string, userId: string): Promise<void>;
+  resolveLocalCategory?(cloudUuid: string, userId: string): Promise<string | null>;
 }
 
 export class CategoryMappingService implements ICategoryResolver {
@@ -55,21 +56,72 @@ export class CategoryMappingService implements ICategoryResolver {
     if (!localId || !cloudUuid || !userId) return;
     const validatedUserId = validateUserId(userId);
     const key = `cat_map:${validatedUserId}:${localId}`;
+    const reverseKey = `cat_rev:${validatedUserId}:${cloudUuid}`;
 
     this.inMemoryFallback.set(key, cloudUuid);
+    this.inMemoryFallback.set(reverseKey, localId);
 
     const activeDb = this.database ?? db;
     if (activeDb?.isOpen()) {
       try {
+        const nowIso = new Date().toISOString();
         await activeDb.syncMetadata.put({
           key,
           value: cloudUuid,
-          updatedAt: new Date().toISOString()
+          updatedAt: nowIso
+        });
+        await activeDb.syncMetadata.put({
+          key: reverseKey,
+          value: localId,
+          updatedAt: nowIso
         });
       } catch (err) {
         console.warn('Failed to persist category mapping to syncMetadata:', err);
       }
     }
+  }
+
+  /**
+   * Resolves a cloud category UUID back to a local Dexie category ID when mapped
+   * (e.g. reconciled default categories across devices), or returns null if unmapped.
+   */
+  public async resolveLocalCategory(cloudUuid: string, userId: string): Promise<string | null> {
+    if (!cloudUuid || !userId) return null;
+    const validatedUserId = validateUserId(userId);
+    const reverseKey = `cat_rev:${validatedUserId}:${cloudUuid}`;
+
+    const activeDb = this.database ?? db;
+    if (activeDb?.isOpen()) {
+      try {
+        const record = await activeDb.syncMetadata.get(reverseKey);
+        if (record && record.value) {
+          return record.value;
+        }
+      } catch (err) {
+        console.warn('Failed to read reverse category mapping from syncMetadata:', err);
+      }
+    }
+
+    const memMapped = this.inMemoryFallback.get(reverseKey);
+    if (memMapped) {
+      return memMapped;
+    }
+
+    if (this.localCategoryRepo && isValidUuid(cloudUuid)) {
+      try {
+        const localCat = await this.localCategoryRepo.findById(
+          createCategoryId(cloudUuid),
+          createUserId(validatedUserId)
+        );
+        if (localCat && localCat.userId === validatedUserId) {
+          return localCat.id;
+        }
+      } catch {
+        // Ignore cross-tenant/missing errors during reverse lookup
+      }
+    }
+
+    return null;
   }
 
   /**

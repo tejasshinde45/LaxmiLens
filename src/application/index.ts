@@ -6,6 +6,9 @@ export * from './ports/UnitOfWork';
 
 export * from './dto';
 
+export * from './services/BudgetSpendingService';
+export * from './services/FinancialAnalyticsService';
+
 export * from './use-cases/accounts/CreateAccountUseCase';
 export * from './use-cases/accounts/UpdateAccountUseCase';
 export * from './use-cases/accounts/ArchiveAccountUseCase';
@@ -23,4 +26,13 @@ export * from './use-cases/transactions/UpdateTransactionUseCase';
 export * from './use-cases/transactions/DeleteTransactionUseCase';
 export * from './use-cases/transactions/GetTransactionsUseCase';
 export * from './use-cases/transactions/ExecuteTransferUseCase';
+export * from './use-cases/budgets/CreateBudgetUseCase';
+export * from './use-cases/budgets/UpdateBudgetUseCase';
+export * from './use-cases/budgets/DeleteBudgetUseCase';
+export * from './use-cases/budgets/GetBudgetsOverviewUseCase';
 export * from './use-cases/budgets/CheckBudgetUseCase';
+
+export * from './use-cases/borrowings/EnsurePersonalBorrowingsAccountUseCase';
+export * from './use-cases/borrowings/AddBorrowingUseCase';
+export * from './use-cases/borrowings/RecordRepaymentUseCase';
+export * from './use-cases/borrowings/GetBorrowingsUseCase';

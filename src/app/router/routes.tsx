@@ -10,6 +10,7 @@ import { AuthCallbackPage } from '@/features/auth/pages/AuthCallbackPage';
 import { DashboardPage } from '@/features/dashboard/DashboardPage';
 import { TransactionsPage } from '@/features/transactions/TransactionsPage';
 import { AccountsPage } from '@/features/accounts/AccountsPage';
+import { BorrowingsPage } from '@/features/borrowings/BorrowingsPage';
 import { BudgetsPage } from '@/features/budgets/BudgetsPage';
 import { AnalyticsPage } from '@/features/analytics/AnalyticsPage';
 import { CalendarPage } from '@/features/calendar/CalendarPage';
@@ -69,6 +70,10 @@ export const router = createBrowserRouter([
           {
             path: 'accounts',
             element: <AccountsPage />
+          },
+          {
+            path: 'borrowings',
+            element: <BorrowingsPage />
           },
           {
             path: 'budgets',

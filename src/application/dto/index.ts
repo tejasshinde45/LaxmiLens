@@ -2,3 +2,5 @@ export * from './TransactionDTO';
 export * from './AccountDTO';
 export * from './CategoryDTO';
 export * from './SyncDTO';
+export * from './BorrowingDTO';
+export * from './BudgetDTO';

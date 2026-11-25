@@ -3,3 +3,5 @@ export * from './AccountRepository';
 export * from './CategoryRepository';
 export * from './BudgetRepository';
 export * from './ProfileRepository';
+export * from './LenderRepository';
+export * from './BorrowingRepository';

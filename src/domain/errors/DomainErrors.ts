@@ -63,6 +63,15 @@ export class CategoryTypeMismatchError extends DomainError {
   }
 }
 
+export class CategoryArchivedError extends DomainError {
+  constructor(categoryId: string) {
+    super(
+      `Category with ID '${categoryId}' is archived and cannot be used for this operation.`,
+      'CATEGORY_ARCHIVED'
+    );
+  }
+}
+
 export class TransferAccountMismatchError extends DomainError {
   constructor(message = 'A transfer transaction must specify distinct source and destination accounts.') {
     super(message, 'TRANSFER_ACCOUNT_MISMATCH');

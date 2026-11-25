@@ -35,29 +35,33 @@ export class CreateAccountUseCase {
       color: dto.color,
       icon: dto.icon,
       notes: dto.notes,
+      systemTag: dto.systemTag,
       isArchived: false,
       version: 1
     });
+
+    const outboxPayload: Record<string, unknown> = {
+      id: account.id,
+      user_id: account.userId,
+      name: account.name,
+      account_type: account.accountType,
+      opening_balance_paise: account.openingBalancePaise,
+      currency: account.currency,
+      institution_name: account.institutionName,
+      color: account.color,
+      icon: account.icon,
+      notes: account.notes,
+      system_tag: account.systemTag ?? null,
+      is_archived: account.isArchived,
+      version: account.version
+    };
 
     const outboxEntry = {
       userId: account.userId,
       entity: 'accounts' as const,
       entityId: account.id,
       operation: 'INSERT' as const,
-      payload: {
-        id: account.id,
-        user_id: account.userId,
-        name: account.name,
-        account_type: account.accountType,
-        opening_balance_paise: account.openingBalancePaise,
-        currency: account.currency,
-        institution_name: account.institutionName,
-        color: account.color,
-        icon: account.icon,
-        notes: account.notes,
-        is_archived: account.isArchived,
-        version: account.version
-      },
+      payload: outboxPayload,
       idempotencyKey: crypto.randomUUID()
     };
 
@@ -84,6 +88,7 @@ export class CreateAccountUseCase {
       color: account.color,
       icon: account.icon,
       notes: account.notes,
+      systemTag: account.systemTag,
       isArchived: account.isArchived,
       version: account.version,
       createdAt: account.createdAt.toISOString(),

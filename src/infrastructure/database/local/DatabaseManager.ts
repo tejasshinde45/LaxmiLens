@@ -11,12 +11,20 @@ import { DexieAccountRepository } from './repositories/DexieAccountRepository';
 import { DexieTransactionRepository } from './repositories/DexieTransactionRepository';
 import { DexieCategoryRepository } from './repositories/DexieCategoryRepository';
 import { DexieProfileRepository } from './repositories/DexieProfileRepository';
+import { DexieLenderRepository } from './repositories/DexieLenderRepository';
+import { DexieBorrowingRepository } from './repositories/DexieBorrowingRepository';
+import { DexieBudgetRepository } from './repositories/DexieBudgetRepository';
 import { OutboxManager } from '@/infrastructure/sync/OutboxManager';
 import { DexieUnitOfWork } from './DexieUnitOfWork';
 import { ManualSyncCoordinator } from '@/infrastructure/sync/ManualSyncCoordinator';
 import { AccountSyncDispatcher } from '@/infrastructure/sync/dispatchers/AccountSyncDispatcher';
 import { TransactionSyncDispatcher } from '@/infrastructure/sync/dispatchers/TransactionSyncDispatcher';
 import { CategorySyncDispatcher } from '@/infrastructure/sync/dispatchers/CategorySyncDispatcher';
+import { BudgetSyncDispatcher } from '@/infrastructure/sync/dispatchers/BudgetSyncDispatcher';
+import { LenderSyncDispatcher } from '@/infrastructure/sync/dispatchers/LenderSyncDispatcher';
+import { BorrowingSyncDispatcher } from '@/infrastructure/sync/dispatchers/BorrowingSyncDispatcher';
+import { BorrowingRepaymentSyncDispatcher } from '@/infrastructure/sync/dispatchers/BorrowingRepaymentSyncDispatcher';
+import { BudgetReconciliationService } from '@/infrastructure/sync/BudgetReconciliationService';
 import { CategoryMappingService } from '@/infrastructure/sync/CategoryMappingService';
 import {
   ISupabaseAccountRepository,
@@ -31,6 +39,22 @@ import {
   SupabaseCategoryRepository
 } from '../cloud/repositories/SupabaseCategoryRepository';
 import {
+  ISupabaseLenderRepository,
+  SupabaseLenderRepository
+} from '../cloud/repositories/SupabaseLenderRepository';
+import {
+  ISupabaseBorrowingRepository,
+  SupabaseBorrowingRepository
+} from '../cloud/repositories/SupabaseBorrowingRepository';
+import {
+  ISupabaseBorrowingRepaymentRepository,
+  SupabaseBorrowingRepaymentRepository
+} from '../cloud/repositories/SupabaseBorrowingRepaymentRepository';
+import {
+  ISupabaseBudgetRepository,
+  SupabaseBudgetRepository
+} from '../cloud/repositories/SupabaseBudgetRepository';
+import {
   GetAccountsWithBalanceUseCase,
   CreateAccountUseCase,
   UpdateAccountUseCase,
@@ -40,7 +64,16 @@ import {
   CreateTransactionUseCase,
   UpdateTransactionUseCase,
   DeleteTransactionUseCase,
-  ExecuteTransferUseCase
+  ExecuteTransferUseCase,
+  EnsurePersonalBorrowingsAccountUseCase,
+  AddBorrowingUseCase,
+  RecordRepaymentUseCase,
+  GetBorrowingsUseCase,
+  CreateBudgetUseCase,
+  UpdateBudgetUseCase,
+  DeleteBudgetUseCase,
+  GetBudgetsOverviewUseCase,
+  CheckBudgetUseCase
 } from '@/application';
 
 export const DATABASE_PREFIX = 'LaxmiLens_LocalDB';
@@ -58,6 +91,9 @@ export interface UserRepositories {
   transactionRepo: DexieTransactionRepository;
   categoryRepo: DexieCategoryRepository;
   profileRepo: DexieProfileRepository;
+  lenderRepo: DexieLenderRepository;
+  borrowingRepo: DexieBorrowingRepository;
+  budgetRepo: DexieBudgetRepository;
   outboxManager: OutboxManager;
   unitOfWork: DexieUnitOfWork;
   syncCoordinator: ManualSyncCoordinator;
@@ -75,6 +111,19 @@ export interface UserRepositories {
   updateTransactionUseCase: UpdateTransactionUseCase;
   deleteTransactionUseCase: DeleteTransactionUseCase;
   executeTransferUseCase: ExecuteTransferUseCase;
+
+  // Pre-wired borrowing use cases
+  ensureBorrowingsAccountUseCase: EnsurePersonalBorrowingsAccountUseCase;
+  addBorrowingUseCase: AddBorrowingUseCase;
+  recordRepaymentUseCase: RecordRepaymentUseCase;
+  getBorrowingsUseCase: GetBorrowingsUseCase;
+
+  // Pre-wired budget use cases
+  createBudgetUseCase: CreateBudgetUseCase;
+  updateBudgetUseCase: UpdateBudgetUseCase;
+  deleteBudgetUseCase: DeleteBudgetUseCase;
+  getBudgetsOverviewUseCase: GetBudgetsOverviewUseCase;
+  checkBudgetUseCase: CheckBudgetUseCase;
 }
 
 export class DatabaseManager {
@@ -94,7 +143,25 @@ export class DatabaseManager {
       supabaseAccountRepo,
       new SupabaseCategoryRepository()
     ),
-    private readonly supabaseCategoryRepo: ISupabaseCategoryRepository = new SupabaseCategoryRepository()
+    private readonly supabaseCategoryRepo: ISupabaseCategoryRepository = new SupabaseCategoryRepository(),
+    private readonly supabaseLenderRepo: ISupabaseLenderRepository = new SupabaseLenderRepository(),
+    private readonly supabaseBorrowingRepo: ISupabaseBorrowingRepository = new SupabaseBorrowingRepository(
+      undefined,
+      supabaseLenderRepo,
+      supabaseAccountRepo,
+      supabaseTransactionRepo
+    ),
+    private readonly supabaseBorrowingRepaymentRepo: ISupabaseBorrowingRepaymentRepository = new SupabaseBorrowingRepaymentRepository(
+      undefined,
+      supabaseBorrowingRepo,
+      supabaseLenderRepo,
+      supabaseAccountRepo,
+      supabaseTransactionRepo
+    ),
+    private readonly supabaseBudgetRepo: ISupabaseBudgetRepository = new SupabaseBudgetRepository(
+      undefined,
+      supabaseCategoryRepo
+    )
   ) {}
 
   public getSessionGeneration(): number {
@@ -336,12 +403,49 @@ export class DatabaseManager {
       categoryMappingService
     );
 
+    const lenderDispatcher = new LenderSyncDispatcher(
+      this.supabaseLenderRepo,
+      this.authPort,
+      outboxManager
+    );
+
+    const borrowingDispatcher = new BorrowingSyncDispatcher(
+      this.supabaseBorrowingRepo,
+      this.authPort,
+      outboxManager
+    );
+
+    const borrowingRepaymentDispatcher = new BorrowingRepaymentSyncDispatcher(
+      this.supabaseBorrowingRepaymentRepo,
+      this.authPort,
+      outboxManager
+    );
+
+    const budgetDispatcher = new BudgetSyncDispatcher(
+      this.supabaseBudgetRepo,
+      this.authPort,
+      outboxManager,
+      categoryMappingService
+    );
+
+    const budgetReconciler = new BudgetReconciliationService(
+      database,
+      this.supabaseBudgetRepo,
+      this.authPort,
+      categoryMappingService
+    );
+
     const syncCoordinator = new ManualSyncCoordinator(
       accountDispatcher,
       transactionDispatcher,
       outboxManager,
       this.authPort,
-      categoryDispatcher
+      categoryDispatcher,
+      lenderDispatcher,
+      borrowingDispatcher,
+      borrowingRepaymentDispatcher,
+      budgetDispatcher,
+      budgetReconciler
     );
 
     const getAccountsUseCase = new GetAccountsWithBalanceUseCase(accountRepo, transactionRepo);
@@ -377,6 +481,72 @@ export class DatabaseManager {
       unitOfWork
     );
 
+    const lenderRepo = new DexieLenderRepository(database);
+    const borrowingRepo = new DexieBorrowingRepository(database);
+    const budgetRepo = new DexieBudgetRepository(database);
+
+    const ensureBorrowingsAccountUseCase = new EnsurePersonalBorrowingsAccountUseCase(
+      accountRepo,
+      outboxManager,
+      unitOfWork
+    );
+
+    const addBorrowingUseCase = new AddBorrowingUseCase(
+      borrowingRepo,
+      lenderRepo,
+      accountRepo,
+      transactionRepo,
+      ensureBorrowingsAccountUseCase,
+      outboxManager,
+      unitOfWork
+    );
+
+    const recordRepaymentUseCase = new RecordRepaymentUseCase(
+      borrowingRepo,
+      lenderRepo,
+      accountRepo,
+      transactionRepo,
+      ensureBorrowingsAccountUseCase,
+      outboxManager,
+      unitOfWork
+    );
+
+    const getBorrowingsUseCase = new GetBorrowingsUseCase(
+      borrowingRepo,
+      lenderRepo,
+      accountRepo
+    );
+
+    const createBudgetUseCase = new CreateBudgetUseCase(
+      budgetRepo,
+      categoryRepo,
+      outboxManager,
+      unitOfWork
+    );
+
+    const updateBudgetUseCase = new UpdateBudgetUseCase(
+      budgetRepo,
+      outboxManager,
+      unitOfWork
+    );
+
+    const deleteBudgetUseCase = new DeleteBudgetUseCase(
+      budgetRepo,
+      outboxManager,
+      unitOfWork
+    );
+
+    const getBudgetsOverviewUseCase = new GetBudgetsOverviewUseCase(
+      budgetRepo,
+      transactionRepo,
+      categoryRepo
+    );
+
+    const checkBudgetUseCase = new CheckBudgetUseCase(
+      budgetRepo,
+      transactionRepo
+    );
+
     this.activeRepositories = {
       userId,
       generation,
@@ -385,6 +555,9 @@ export class DatabaseManager {
       transactionRepo,
       categoryRepo,
       profileRepo,
+      lenderRepo,
+      borrowingRepo,
+      budgetRepo,
       outboxManager,
       unitOfWork,
       syncCoordinator,
@@ -397,7 +570,16 @@ export class DatabaseManager {
       createTransactionUseCase,
       updateTransactionUseCase,
       deleteTransactionUseCase,
-      executeTransferUseCase
+      executeTransferUseCase,
+      ensureBorrowingsAccountUseCase,
+      addBorrowingUseCase,
+      recordRepaymentUseCase,
+      getBorrowingsUseCase,
+      createBudgetUseCase,
+      updateBudgetUseCase,
+      deleteBudgetUseCase,
+      getBudgetsOverviewUseCase,
+      checkBudgetUseCase
     };
 
     return this.activeRepositories;

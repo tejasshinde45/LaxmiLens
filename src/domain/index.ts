@@ -4,6 +4,9 @@ export * from './entities/Transaction';
 export * from './entities/Category';
 export * from './entities/Budget';
 export * from './entities/RecurringRule';
+export * from './entities/Lender';
+export * from './entities/Borrowing';
+export * from './entities/BorrowingRepayment';
 
 export * from './value-objects/Money';
 export * from './value-objects/Identifiers';
@@ -13,3 +16,5 @@ export * from './repositories';
 export * from './rules/LedgerRules';
 export * from './services';
 export * from './errors/DomainErrors';
+export * from './errors/BorrowingErrors';
+export * from './errors/BudgetErrors';

@@ -66,8 +66,12 @@ export const AccountCard: React.FC<AccountCardProps> = ({
   const IconComponent = getAccountIcon(typeKey);
   const accentColor = account.color || typeConfig.defaultColor;
 
+  const isPersonalBorrowings =
+    account.systemTag === 'personal_borrowings' ||
+    account.name.trim().toLowerCase() === 'personal borrowings';
   const isDebt = account.isCreditCard && account.currentBalancePaise < 0;
-  const isOverdraft = !account.isCreditCard && account.currentBalancePaise < 0;
+  const isOverdraft = !account.isCreditCard && !isPersonalBorrowings && account.currentBalancePaise < 0;
+  const isLiability = isPersonalBorrowings && account.currentBalancePaise < 0;
 
   return (
     <Card
@@ -160,15 +164,15 @@ export const AccountCard: React.FC<AccountCardProps> = ({
       <div className="pt-2 border-t border-[#303030]/60 flex items-end justify-between">
         <div>
           <span className="text-[10px] font-medium tracking-wider text-[#858078] uppercase block">
-            Current Balance
+            {isLiability ? 'Outstanding Debt' : 'Current Balance'}
           </span>
           <div
             className={cn(
               'text-lg sm:text-xl font-bold font-display tracking-tight',
-              isDebt || isOverdraft ? 'text-[#D9827C]' : 'text-[#F5F1E8]'
+              isLiability ? 'text-[#D6AD60]' : isDebt || isOverdraft ? 'text-[#D9827C]' : 'text-[#F5F1E8]'
             )}
           >
-            {account.currentBalanceFormatted}
+            {isLiability ? `₹${(Math.abs(account.currentBalancePaise) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : account.currentBalanceFormatted}
           </div>
         </div>
 

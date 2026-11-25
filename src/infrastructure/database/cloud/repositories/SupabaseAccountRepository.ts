@@ -29,6 +29,42 @@ export class SupabaseAccountRepository implements ISupabaseAccountRepository {
    * - If differing data or owned by another tenant, raises SyncConflictError.
    */
   public async insert(account: CloudAccountRow): Promise<CloudAccountRow> {
+    // 1. If this is the designated Personal Borrowings system account, provision via authorized SECURITY DEFINER RPC
+    if (account.system_tag === 'personal_borrowings') {
+      const { data, error } = await this.client.rpc('provision_personal_borrowings_account', {
+        p_account_id: account.id,
+        p_name: account.name,
+        p_currency: account.currency,
+        p_color: account.color ?? undefined,
+        p_icon: account.icon ?? undefined,
+        p_notes: account.notes ?? undefined
+      });
+
+      if (error) {
+        if (error.code === '42501') {
+          throw new SyncDatabaseError(
+            'RLS permission denied: Cannot provision personal borrowings system account.',
+            '42501',
+            error
+          );
+        }
+        throw new SyncDatabaseError(
+          `Failed to provision personal borrowings system account: ${error.message}`,
+          error.code || 'UNKNOWN',
+          error
+        );
+      }
+
+      if (!data) {
+        throw new SyncDatabaseError('Provisioning succeeded but no data returned from Supabase.');
+      }
+
+      const verified = data as CloudAccountRow;
+      this.verifyPersistedRow(verified, account.id, account.user_id, account.version);
+      return verified;
+    }
+
+    // 2. Standard user accounts proceed via PostgREST table insert (omitting system_tag)
     const { data, error } = await this.client
       .from('accounts')
       .insert(account)
@@ -57,7 +93,8 @@ export class SupabaseAccountRepository implements ISupabaseAccountRepository {
           (existing.institution_name ?? null) === (account.institution_name ?? null) &&
           (existing.color ?? null) === (account.color ?? null) &&
           (existing.icon ?? null) === (account.icon ?? null) &&
-          (existing.notes ?? null) === (account.notes ?? null);
+          (existing.notes ?? null) === (account.notes ?? null) &&
+          (existing.system_tag ?? null) === (account.system_tag ?? null);
 
         if (isIdentical) {
           // Idempotent retry: verified matching account already committed in cloud
@@ -107,6 +144,7 @@ export class SupabaseAccountRepository implements ISupabaseAccountRepository {
     delete sanitizedPatch.user_id;
     delete sanitizedPatch.created_at;
     delete sanitizedPatch.currency;
+    delete sanitizedPatch.system_tag;
 
     // Ensure updated_at is populated
     if (!sanitizedPatch.updated_at) {

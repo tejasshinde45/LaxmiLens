@@ -1,18 +1,14 @@
 import { BudgetRepository } from '@/domain/repositories/BudgetRepository';
 import { TransactionRepository } from '@/domain/repositories/TransactionRepository';
 import { createCategoryId, validateUserId } from '@/domain/value-objects/Identifiers';
-import { Money } from '@/domain/value-objects/Money';
+import { BudgetStatusDTO } from '@/application/dto/BudgetDTO';
+import {
+  BudgetSpendingService,
+  parseBudgetPeriod
+} from '@/application/services/BudgetSpendingService';
+import { formatPaiseToINR } from '@/utils/formatters';
 
-export interface BudgetStatusDTO {
-  budgetId: string;
-  categoryId: string;
-  period: string;
-  limitInPaise: number;
-  spentInPaise: number;
-  remainingInPaise: number;
-  percentageUsed: number;
-  isExceeded: boolean;
-}
+export type { BudgetStatusDTO };
 
 export class CheckBudgetUseCase {
   constructor(
@@ -20,38 +16,60 @@ export class CheckBudgetUseCase {
     private readonly transactionRepo: TransactionRepository
   ) {}
 
-  public async execute(categoryIdStr: string, period: string, userIdStr: string): Promise<BudgetStatusDTO | null> {
-    const categoryId = createCategoryId(categoryIdStr);
+  public async execute(
+    categoryIdStr: string,
+    period: string,
+    userIdStr: string
+  ): Promise<BudgetStatusDTO | null> {
     const userId = validateUserId(userIdStr);
-    const budget = await this.budgetRepo.findByCategoryAndPeriod(categoryId, period);
+    const { normalizedPeriod } = parseBudgetPeriod(period);
+    const dateRange = BudgetSpendingService.getMonthDateRange(normalizedPeriod);
+    const categoryId = createCategoryId((categoryIdStr || '').trim());
+
+    const budget = await this.budgetRepo.findByCategoryAndPeriod(
+      categoryId,
+      normalizedPeriod,
+      userId
+    );
     if (!budget) return null;
 
-    // Filter transactions for this category and month, scoped strictly to the authenticated user
-    const transactions = await this.transactionRepo.findMany({ userId, categoryId });
-    let spentPaise = 0;
+    const transactions = await this.transactionRepo.findMany({
+      userId,
+      categoryId,
+      dateRange,
+      types: ['expense'],
+      includeDeleted: false
+    });
 
-    for (const tx of transactions) {
-      if (tx.isDeleted) continue;
-      const txPeriod = `${tx.date.getFullYear()}-${String(tx.date.getMonth() + 1).padStart(2, '0')}`;
-      if (txPeriod === period && tx.type === 'expense') {
-        spentPaise += tx.amount.paise;
-      }
-    }
+    const spentByCategory = BudgetSpendingService.aggregateExpenseByCategory(
+      transactions,
+      userId,
+      dateRange,
+      categoryId
+    );
 
-    const spent = Money.fromPaise(spentPaise);
-    const isExceeded = budget.isOverBudget(spent);
-    const remaining = budget.remaining(spent);
-    const percentage = budget.limit.paise > 0 ? (spent.paise / budget.limit.paise) * 100 : 0;
+    const spentPaise = spentByCategory.get(categoryId) ?? 0;
+    const evaluation = BudgetSpendingService.evaluateBudget(budget, spentPaise);
 
     return {
       budgetId: budget.id,
+      userId: budget.userId,
       categoryId: budget.categoryId,
       period: budget.period,
-      limitInPaise: budget.limit.paise,
-      spentInPaise: spent.paise,
-      remainingInPaise: remaining.paise,
-      percentageUsed: Math.min(Math.round(percentage), 100),
-      isExceeded
+      limitPaise: budget.limitPaise,
+      limitFormatted: formatPaiseToINR(budget.limitPaise),
+      spentPaise: evaluation.spentPaise,
+      spentFormatted: formatPaiseToINR(evaluation.spentPaise),
+      remainingPaise: evaluation.remainingPaise,
+      remainingFormatted: formatPaiseToINR(evaluation.remainingPaise),
+      utilizationPercentage: evaluation.utilizationPercentage,
+      isExceeded: evaluation.isExceeded,
+
+      // Compatibility aliases
+      limitInPaise: budget.limitPaise,
+      spentInPaise: evaluation.spentPaise,
+      remainingInPaise: evaluation.remainingPaise,
+      percentageUsed: evaluation.utilizationPercentage
     };
   }
 }

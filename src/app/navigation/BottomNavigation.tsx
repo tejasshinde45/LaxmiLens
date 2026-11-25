@@ -11,7 +11,8 @@ import {
   CalendarDays,
   FileText,
   Settings,
-  X
+  X,
+  HandCoins
 } from 'lucide-react';
 import { Dialog, DialogPortal, DialogOverlay } from '@/components/ui/Dialog';
 import { cn } from '@/utils/cn';
@@ -34,6 +35,7 @@ export const BottomNavigation: React.FC<BottomNavigationProps> = ({
   };
 
   const moreItems = [
+    { label: 'Borrowings', path: '/borrowings', icon: HandCoins, desc: 'Personal debts & repayments' },
     { label: 'Budgets', path: '/budgets', icon: PiggyBank, desc: 'Monthly category limits' },
     { label: 'Analytics', path: '/analytics', icon: PieChart, desc: 'Spending trends & breakdown' },
     { label: 'Calendar', path: '/calendar', icon: CalendarDays, desc: 'Upcoming scheduled events' },

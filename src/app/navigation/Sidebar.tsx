@@ -9,7 +9,8 @@ import {
   Settings,
   PanelLeftClose,
   PanelLeftOpen,
-  Sparkles
+  Sparkles,
+  HandCoins
 } from 'lucide-react';
 import { NavigationItem } from './NavigationItem';
 import { IconButton } from '@/components/ui/IconButton';
@@ -31,6 +32,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { label: 'Overview', to: '/dashboard', icon: LayoutDashboard },
     { label: 'Transactions', to: '/transactions', icon: ArrowLeftRight },
     { label: 'Accounts', to: '/accounts', icon: Wallet },
+    { label: 'Borrowings', to: '/borrowings', icon: HandCoins },
     { label: 'Budgets', to: '/budgets', icon: PiggyBank },
     { label: 'Analytics', to: '/analytics', icon: PieChart }
   ];

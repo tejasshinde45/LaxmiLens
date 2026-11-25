@@ -1,5 +1,13 @@
 export type SyncOperation = 'INSERT' | 'UPDATE' | 'DELETE';
-export type SyncEntity = 'accounts' | 'transactions' | 'categories' | 'budgets' | 'recurring_rules';
+export type SyncEntity =
+  | 'accounts'
+  | 'transactions'
+  | 'categories'
+  | 'budgets'
+  | 'recurring_rules'
+  | 'lenders'
+  | 'borrowings'
+  | 'borrowing_repayments';
 
 export interface OutboxEntry {
   id: string;

@@ -9,7 +9,10 @@ import {
   LocalBudgetRecord,
   LocalRecurringRuleRecord,
   LocalOutboxRecord,
-  LocalSyncMetadataRecord
+  LocalSyncMetadataRecord,
+  LocalLenderRecord,
+  LocalBorrowingRecord,
+  LocalBorrowingRepaymentRecord
 } from './schema';
 
 export class LaxmiLensDB extends Dexie {
@@ -21,6 +24,9 @@ export class LaxmiLensDB extends Dexie {
   public recurringRules!: Table<LocalRecurringRuleRecord, string>;
   public syncOutbox!: Table<LocalOutboxRecord, number>;
   public syncMetadata!: Table<LocalSyncMetadataRecord, string>;
+  public lenders!: Table<LocalLenderRecord, string>;
+  public borrowings!: Table<LocalBorrowingRecord, string>;
+  public borrowingRepayments!: Table<LocalBorrowingRepaymentRecord, string>;
 
   constructor(dbName: string = APP_CONFIG.database.name) {
     super(dbName);
@@ -194,7 +200,138 @@ export class LaxmiLensDB extends Dexie {
         // All existing historical records across all accounts, transactions, and categories
         // are preserved strictly without data loss, re-assignment, or partition clearing.
       });
+
+    // Version 5: Personal Borrowings Feature
+    this.version(5)
+      .stores({
+        lenders: 'id, userId, name, isArchived, createdAt, [userId+id], [userId+name]',
+        borrowings:
+          'id, userId, lenderId, receivingAccountId, transactionId, status, borrowingDate, [userId+id], [userId+lenderId], [userId+status]',
+        borrowingRepayments:
+          'id, userId, borrowingId, lenderId, paymentAccountId, transactionId, repaymentDate, [userId+id], [userId+borrowingId], [userId+lenderId]'
+      })
+      .upgrade((_tx) => {
+        // Stores are created cleanly. Existing user data in accounts, transactions,
+        // categories, and profiles remains completely untouched.
+      });
+
+    // Version 6: Budget Management Local Persistence & User-Scoping
+    this.version(6)
+      .stores({
+        budgets:
+          'id, userId, categoryId, period, version, createdAt, [userId+id], [userId+period], [userId+categoryId+period]'
+      })
+      .upgrade(upgradeBudgetsToVersion6);
   }
+}
+
+const NIL_UUID = '00000000-0000-0000-0000-000000000000';
+
+/**
+ * Dexie Version 6 migration handler for budgets:
+ * Upgrades legacy budget records to user-scoped model with strict category-based ownership
+ * verification, paise conversion, and fail-closed quarantine for missing, invalid, or
+ * conflicting ownership and invalid limit values.
+ */
+export async function upgradeBudgetsToVersion6(tx: any): Promise<void> {
+  let categoryMap: Map<string, any> | null = null;
+  try {
+    const categories = await tx.table('categories').toArray();
+    categoryMap = new Map<string, any>();
+    categories.forEach((cat: any) => {
+      if (cat && cat.id) {
+        categoryMap!.set(cat.id, cat);
+      }
+    });
+  } catch {
+    // If categories table is empty or inaccessible during upgrade, proceed fail-closed
+    categoryMap = null;
+  }
+
+  await tx
+    .table('budgets')
+    .toCollection()
+    .modify((b: any) => {
+      // 1. Resolve limitPaise without fabricating 0
+      const rawLimit = b.limitPaise ?? b.limitInPaise;
+      const isValidLimit =
+        typeof rawLimit === 'number' &&
+        Number.isSafeInteger(rawLimit) &&
+        rawLimit > 0;
+
+      if (isValidLimit) {
+        b.limitPaise = rawLimit;
+        delete b.limitInPaise;
+      }
+
+      // 2. Ensure timestamps and version
+      if (!b.createdAt) {
+        b.createdAt = new Date().toISOString();
+      }
+      if (!b.updatedAt) {
+        b.updatedAt = b.createdAt;
+      }
+      if (typeof b.version !== 'number' || !Number.isSafeInteger(b.version) || b.version < 1) {
+        b.version = 1;
+      }
+
+      // 3. Preserve already quarantined records idempotently
+      if (
+        typeof b.userId === 'string' &&
+        (b.userId.startsWith('quarantine-') || b.userId === 'ambiguous-unassigned')
+      ) {
+        return;
+      }
+
+      // 4. Reject invalid limit without fabricating 0
+      if (!isValidLimit) {
+        b.userId = 'quarantine-invalid-data';
+        return;
+      }
+
+      // 5. Verify referenced category ownership even when budget already carries a UUID userId
+      const category =
+        categoryMap && typeof b.categoryId === 'string' && b.categoryId.trim() !== ''
+          ? categoryMap.get(b.categoryId)
+          : undefined;
+
+      const rawCategoryUserId =
+        category && typeof category.userId === 'string' ? category.userId.trim() : '';
+      const isValidCategoryUser =
+        isValidUuid(rawCategoryUserId) && rawCategoryUserId.toLowerCase() !== NIL_UUID;
+
+      if (!category || !isValidCategoryUser) {
+        // Missing category or missing/invalid/nil/sentinel category userId -> fail closed
+        b.userId = 'quarantine-unresolved-ownership';
+        return;
+      }
+
+      const normalizedCategoryUserUuid = rawCategoryUserId.toLowerCase();
+      const rawBudgetUserId = typeof b.userId === 'string' ? b.userId.trim() : '';
+
+      // 6a. Legacy record without userId: positively resolve from verified category owner
+      if (rawBudgetUserId === '') {
+        b.userId = rawCategoryUserId;
+        return;
+      }
+
+      // 6b. Existing budget has a valid non-nil UUID: verify ownership matches referenced category
+      const isValidBudgetUser =
+        isValidUuid(rawBudgetUserId) && rawBudgetUserId.toLowerCase() !== NIL_UUID;
+
+      if (isValidBudgetUser) {
+        if (rawBudgetUserId.toLowerCase() === normalizedCategoryUserUuid) {
+          b.userId = rawCategoryUserId;
+        } else {
+          // Conflicting ownership: e.g. budget claims User A while category belongs to User B
+          b.userId = 'quarantine-conflicting-ownership';
+        }
+        return;
+      }
+
+      // 6c. Non-empty malformed or sentinel budget userId (e.g. 'local-user', nil-UUID)
+      b.userId = 'quarantine-malformed-ownership';
+    });
 }
 
 // Singleton local database instance

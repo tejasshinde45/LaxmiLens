@@ -58,7 +58,7 @@ export class SyncDatabaseError extends SyncError {
 }
 
 export class SyncInProgressError extends SyncError {
-  constructor(message = 'Account synchronization is already in progress.') {
+  constructor(message = 'Synchronization is already in progress.') {
     super(message, 'SYNC_IN_PROGRESS');
   }
 }
@@ -81,4 +81,29 @@ export class SyncAccountDependencyError extends SyncError {
   }
 }
 
+export class SyncTransactionDependencyError extends SyncError {
+  public readonly transactionId: string;
 
+  constructor(message: string, transactionId: string) {
+    super(message, 'SYNC_TRANSACTION_DEPENDENCY_ERROR');
+    this.transactionId = transactionId;
+  }
+}
+
+export class SyncLenderDependencyError extends SyncError {
+  public readonly lenderId: string;
+
+  constructor(message: string, lenderId: string) {
+    super(message, 'SYNC_LENDER_DEPENDENCY_ERROR');
+    this.lenderId = lenderId;
+  }
+}
+
+export class SyncBorrowingDependencyError extends SyncError {
+  public readonly borrowingId: string;
+
+  constructor(message: string, borrowingId: string) {
+    super(message, 'SYNC_BORROWING_DEPENDENCY_ERROR');
+    this.borrowingId = borrowingId;
+  }
+}

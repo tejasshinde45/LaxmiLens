@@ -1,6 +1,11 @@
 import { AccountSyncDispatcher } from './dispatchers/AccountSyncDispatcher';
 import { TransactionSyncDispatcher } from './dispatchers/TransactionSyncDispatcher';
 import { CategorySyncDispatcher } from './dispatchers/CategorySyncDispatcher';
+import { BudgetSyncDispatcher } from './dispatchers/BudgetSyncDispatcher';
+import { LenderSyncDispatcher } from './dispatchers/LenderSyncDispatcher';
+import { BorrowingSyncDispatcher } from './dispatchers/BorrowingSyncDispatcher';
+import { BorrowingRepaymentSyncDispatcher } from './dispatchers/BorrowingRepaymentSyncDispatcher';
+import { BudgetReconciliationService } from './BudgetReconciliationService';
 import { OutboxManager } from './OutboxManager';
 import { AuthPort } from '@/application/ports/AuthPort';
 import { LocalOutboxRecord } from '../database/local/schema';
@@ -8,6 +13,9 @@ import {
   SyncAuthError,
   SyncInProgressError,
   SyncAccountDependencyError,
+  SyncTransactionDependencyError,
+  SyncLenderDependencyError,
+  SyncBorrowingDependencyError,
   SyncUnresolvedCategoryError,
   SyncConflictError,
   SyncDatabaseError
@@ -15,6 +23,10 @@ import {
 import { SupabaseAccountRepository } from '../database/cloud/repositories/SupabaseAccountRepository';
 import { SupabaseTransactionRepository } from '../database/cloud/repositories/SupabaseTransactionRepository';
 import { SupabaseCategoryRepository } from '../database/cloud/repositories/SupabaseCategoryRepository';
+import { SupabaseBudgetRepository } from '../database/cloud/repositories/SupabaseBudgetRepository';
+import { SupabaseLenderRepository } from '../database/cloud/repositories/SupabaseLenderRepository';
+import { SupabaseBorrowingRepository } from '../database/cloud/repositories/SupabaseBorrowingRepository';
+import { SupabaseBorrowingRepaymentRepository } from '../database/cloud/repositories/SupabaseBorrowingRepaymentRepository';
 import { CategoryMappingService } from './CategoryMappingService';
 import { defaultAuthAdapter } from '../auth/SupabaseAuthAdapter';
 
@@ -35,6 +47,7 @@ export interface UnifiedSyncResult {
   skippedCount: number;
   unsupportedCount: number;
   stillPendingCount: number;
+  pulledCount: number;
 
   // Breakdown by entity
   accounts: {
@@ -47,6 +60,14 @@ export interface UnifiedSyncResult {
     failedCount: number;
     skippedCount: number;
   };
+  budgets: {
+    syncedCount: number;
+    failedCount: number;
+    skippedCount: number;
+    categoryBlockedCount: number;
+    conflictCount: number;
+    pulledCount: number;
+  };
   transactions: {
     syncedCount: number;
     failedCount: number;
@@ -54,6 +75,23 @@ export interface UnifiedSyncResult {
     dependencyBlockedCount: number;
     categoryBlockedCount: number;
     conflictCount: number;
+  };
+  lenders: {
+    syncedCount: number;
+    failedCount: number;
+    skippedCount: number;
+  };
+  borrowings: {
+    syncedCount: number;
+    failedCount: number;
+    skippedCount: number;
+    dependencyBlockedCount: number;
+  };
+  borrowing_repayments: {
+    syncedCount: number;
+    failedCount: number;
+    skippedCount: number;
+    dependencyBlockedCount: number;
   };
 
   // Detailed errors
@@ -64,19 +102,23 @@ export interface UnifiedSyncResult {
  * ManualSyncCoordinator
  *
  * Dedicated unified application-level coordinator for manual synchronization of
- * 'accounts', 'categories', and 'transactions' outbox entries.
+ * financial outbox entries in strict dependency order and bidirectional budget reconciliation:
+ * Accounts -> Categories -> Budgets -> Transactions -> Lenders -> Borrowings (Inserts) -> Borrowing Repayments -> Borrowings (Updates) -> Budget Cloud Pull.
  *
  * Guarantees:
  * 1. Strict User Context: Requires authenticated user; rejects unauthenticated calls with SyncAuthError.
  * 2. Concurrency Safety: Mutex prevents concurrent manual clicks from starting competing global sync jobs.
- * 3. Accounts-Before-Categories-Before-Transactions Ordering: In every batch, all eligible account events
- *    are dispatched first, then category events, then transaction events.
- * 4. Cross-Entity Dependency Safety: Transactions referencing newly synced accounts and categories succeed;
- *    transactions referencing failed or un-synced accounts/categories safely fail and remain in the outbox.
- * 5. Strict Sequential Processing: Outbox entries are processed one-by-one in FIFO insertion order.
+ * 3. Strict Dependency Ordering:
+ *    Accounts -> Categories -> Budgets -> Transactions -> Lenders -> Borrowings (Inserts) -> Borrowing Repayments -> Borrowings (Updates) -> Budget Pull Reconciliation.
+ * 4. Cross-Entity Dependency Failure Isolation:
+ *    If an upstream entity (e.g. Account, Category, Transaction, Lender, Borrowing) fails synchronization,
+ *    all downstream dependent records are safely blocked and SKIPPED. They remain in the outbox
+ *    with their pending state completely preserved (never deleted or acknowledged).
+ * 5. Strict Sequential Processing: Outbox entries within each entity group are processed in FIFO order.
  * 6. Per-Entity Failure Isolation: If an earlier event for an entity fails, subsequent events for that SAME
- *    entity ID are skipped during this run to preserve version progression (v1 -> v2 -> v3).
- * 7. Multi-Entity Progression: Other independent accounts, categories, and transactions continue processing.
+ *    entity ID (or same Budget slot `(userId, categoryId, period)`) are skipped during this run to preserve version progression (v1 -> v2 -> v3).
+ * 7. Multi-Entity Progression: Other independent accounts, categories, budgets, transactions, lenders, borrowings,
+ *    and repayments continue processing uninhibited.
  * 8. Non-Destructive to Unsupported Entities: Unsupported entities remain untouched in the outbox.
  * 9. Dispatcher Acknowledgment: The coordinator never deletes entries directly; outbox records are
  *    acknowledged (deleted) solely by dispatchers after verified remote persistence.
@@ -90,7 +132,12 @@ export class ManualSyncCoordinator {
     private readonly transactionDispatcher: TransactionSyncDispatcher,
     private readonly outboxManager: OutboxManager,
     private readonly authPort: AuthPort,
-    private readonly categoryDispatcher?: CategorySyncDispatcher
+    private readonly categoryDispatcher?: CategorySyncDispatcher,
+    private readonly lenderDispatcher?: LenderSyncDispatcher,
+    private readonly borrowingDispatcher?: BorrowingSyncDispatcher,
+    private readonly borrowingRepaymentDispatcher?: BorrowingRepaymentSyncDispatcher,
+    private readonly budgetDispatcher?: BudgetSyncDispatcher,
+    private readonly budgetReconciler?: BudgetReconciliationService
   ) {}
 
   public isSyncRunning(): boolean {
@@ -98,7 +145,7 @@ export class ManualSyncCoordinator {
   }
 
   /**
-   * Retrieves pending outbox records for coordinated entities ('accounts', 'categories', 'transactions').
+   * Retrieves pending outbox records for coordinated entities.
    * Scoped to the authenticated user.
    */
   public async getPendingEntries(userId?: string, limit = 100): Promise<LocalOutboxRecord[]> {
@@ -110,6 +157,10 @@ export class ManualSyncCoordinator {
     return allPending.filter((entry) => {
       if (entry.entity === 'accounts' || entry.entity === 'transactions') return true;
       if (entry.entity === 'categories' && this.categoryDispatcher) return true;
+      if (entry.entity === 'budgets' && this.budgetDispatcher) return true;
+      if (entry.entity === 'lenders' && this.lenderDispatcher) return true;
+      if (entry.entity === 'borrowings' && this.borrowingDispatcher) return true;
+      if (entry.entity === 'borrowing_repayments' && this.borrowingRepaymentDispatcher) return true;
       return false;
     });
   }
@@ -128,7 +179,7 @@ export class ManualSyncCoordinator {
   }
 
   /**
-   * Executes unified manual synchronization of pending account and transaction outbox records.
+   * Executes unified manual synchronization of pending outbox records.
    */
   public async run(limit = 100): Promise<UnifiedSyncResult> {
     if (this.isRunning) {
@@ -152,6 +203,7 @@ export class ManualSyncCoordinator {
         skippedCount: 0,
         unsupportedCount: 0,
         stillPendingCount: 0,
+        pulledCount: 0,
         accounts: {
           syncedCount: 0,
           failedCount: 0,
@@ -162,6 +214,14 @@ export class ManualSyncCoordinator {
           failedCount: 0,
           skippedCount: 0
         },
+        budgets: {
+          syncedCount: 0,
+          failedCount: 0,
+          skippedCount: 0,
+          categoryBlockedCount: 0,
+          conflictCount: 0,
+          pulledCount: 0
+        },
         transactions: {
           syncedCount: 0,
           failedCount: 0,
@@ -169,6 +229,23 @@ export class ManualSyncCoordinator {
           dependencyBlockedCount: 0,
           categoryBlockedCount: 0,
           conflictCount: 0
+        },
+        lenders: {
+          syncedCount: 0,
+          failedCount: 0,
+          skippedCount: 0
+        },
+        borrowings: {
+          syncedCount: 0,
+          failedCount: 0,
+          skippedCount: 0,
+          dependencyBlockedCount: 0
+        },
+        borrowing_repayments: {
+          syncedCount: 0,
+          failedCount: 0,
+          skippedCount: 0,
+          dependencyBlockedCount: 0
         },
         errors: []
       };
@@ -180,7 +257,12 @@ export class ManualSyncCoordinator {
       // Group entries preserving FIFO within each group
       const accountEntries: LocalOutboxRecord[] = [];
       const categoryEntries: LocalOutboxRecord[] = [];
+      const budgetEntries: LocalOutboxRecord[] = [];
       const transactionEntries: LocalOutboxRecord[] = [];
+      const lenderEntries: LocalOutboxRecord[] = [];
+      const borrowingInsertEntries: LocalOutboxRecord[] = [];
+      const borrowingUpdateEntries: LocalOutboxRecord[] = [];
+      const repaymentEntries: LocalOutboxRecord[] = [];
       const unsupportedEntries: LocalOutboxRecord[] = [];
 
       for (const entry of pendingEntries) {
@@ -188,8 +270,20 @@ export class ManualSyncCoordinator {
           accountEntries.push(entry);
         } else if (entry.entity === 'categories' && this.categoryDispatcher) {
           categoryEntries.push(entry);
+        } else if (entry.entity === 'budgets' && this.budgetDispatcher) {
+          budgetEntries.push(entry);
         } else if (entry.entity === 'transactions') {
           transactionEntries.push(entry);
+        } else if (entry.entity === 'lenders' && this.lenderDispatcher) {
+          lenderEntries.push(entry);
+        } else if (entry.entity === 'borrowings' && this.borrowingDispatcher) {
+          if (entry.operation === 'INSERT') {
+            borrowingInsertEntries.push(entry);
+          } else {
+            borrowingUpdateEntries.push(entry);
+          }
+        } else if (entry.entity === 'borrowing_repayments' && this.borrowingRepaymentDispatcher) {
+          repaymentEntries.push(entry);
         } else {
           unsupportedEntries.push(entry);
         }
@@ -197,13 +291,21 @@ export class ManualSyncCoordinator {
 
       result.unsupportedCount = unsupportedEntries.length;
 
-      // 3. Process account events first
+      // Tracking sets for cascading dependency failure isolation
       const failedAccountIds = new Set<string>();
+      const failedCategoryIds = new Set<string>();
+      const failedBudgetIds = new Set<string>();
+      const failedBudgetSlots = new Set<string>();
+      const failedTransactionIds = new Set<string>();
+      const failedLenderIds = new Set<string>();
+      const failedBorrowingIds = new Set<string>();
 
+      // -----------------------------------------------------------------------
+      // STAGE 1: ACCOUNTS
+      // -----------------------------------------------------------------------
       for (const entry of accountEntries) {
         const accountId = entry.entityId;
 
-        // Skip subsequent entries for an account that already encountered a failure
         if (failedAccountIds.has(accountId)) {
           result.skippedCount++;
           result.accounts.skippedCount++;
@@ -232,13 +334,12 @@ export class ManualSyncCoordinator {
         }
       }
 
-      // 4. Process category events second (Accounts -> Categories -> Transactions)
-      const failedCategoryIds = new Set<string>();
-
+      // -----------------------------------------------------------------------
+      // STAGE 2: CATEGORIES (Accounts -> Categories -> Transactions)
+      // -----------------------------------------------------------------------
       for (const entry of categoryEntries) {
         const categoryId = entry.entityId;
 
-        // Skip subsequent entries for a category that already encountered a failure
         if (failedCategoryIds.has(categoryId)) {
           result.skippedCount++;
           result.categories.skippedCount++;
@@ -270,20 +371,132 @@ export class ManualSyncCoordinator {
         }
       }
 
-      // 5. Process transaction events (only after account and category events have completed)
-      const failedTransactionIds = new Set<string>();
+      // -----------------------------------------------------------------------
+      // STAGE 3: BUDGETS (depends on Categories; preserves FIFO per budget ID & slot)
+      // -----------------------------------------------------------------------
+      for (const entry of budgetEntries) {
+        const budgetId = entry.entityId;
+        const rawUserId = entry.payload?.user_id ?? entry.payload?.userId;
+        const slotUserId =
+          typeof rawUserId === 'string' && rawUserId.trim().length > 0
+            ? rawUserId.trim()
+            : currentUser.id;
+        const rawCategory = entry.payload?.category_id ?? entry.payload?.categoryId;
+        const rawPeriod = entry.payload?.period;
+        const slotKey =
+          typeof rawCategory === 'string' &&
+          rawCategory.trim().length > 0 &&
+          typeof rawPeriod === 'string' &&
+          rawPeriod.trim().length > 0
+            ? `${slotUserId}:${rawCategory.trim()}:${rawPeriod.trim()}`
+            : null;
 
+        // Enforce strict FIFO on same budgetId AND on deleted-then-recreated (user, category, period) slot
+        if (failedBudgetIds.has(budgetId) || (slotKey !== null && failedBudgetSlots.has(slotKey))) {
+          result.skippedCount++;
+          result.budgets.skippedCount++;
+          failedBudgetIds.add(budgetId);
+          continue;
+        }
+
+        // Category dependency check: INSERT depends on upstream Category identity sync in Stage 2
+        if (
+          entry.operation === 'INSERT' &&
+          typeof rawCategory === 'string' &&
+          failedCategoryIds.has(rawCategory.trim())
+        ) {
+          result.failedCount++;
+          result.budgets.failedCount++;
+          result.budgets.categoryBlockedCount++;
+          failedBudgetIds.add(budgetId);
+          if (slotKey) {
+            failedBudgetSlots.add(slotKey);
+          }
+
+          const errorMsg = `Cannot sync budget '${budgetId}': referenced category '${rawCategory}' failed synchronization.`;
+          result.errors.push({
+            entity: 'budgets',
+            entityId: budgetId,
+            outboxId: entry.id,
+            error: errorMsg,
+            category: 'category'
+          });
+          continue;
+        }
+
+        result.totalProcessed++;
+
+        try {
+          if (!this.budgetDispatcher) {
+            throw new Error('BudgetSyncDispatcher is not configured.');
+          }
+          await this.budgetDispatcher.dispatch(entry);
+          result.syncedCount++;
+          result.budgets.syncedCount++;
+        } catch (error) {
+          result.failedCount++;
+          result.budgets.failedCount++;
+          failedBudgetIds.add(budgetId);
+          if (slotKey) {
+            failedBudgetSlots.add(slotKey);
+          }
+
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          const category = this.classifyError(error);
+
+          if (error instanceof SyncUnresolvedCategoryError) {
+            result.budgets.categoryBlockedCount++;
+          } else if (error instanceof SyncConflictError) {
+            result.budgets.conflictCount++;
+          }
+
+          result.errors.push({
+            entity: 'budgets',
+            entityId: budgetId,
+            outboxId: entry.id,
+            error: errorMsg,
+            category
+          });
+        }
+      }
+
+      // -----------------------------------------------------------------------
+      // STAGE 4: TRANSACTIONS
+      // -----------------------------------------------------------------------
       for (const entry of transactionEntries) {
         const transactionId = entry.entityId;
 
-        // Skip subsequent entries for a transaction that already encountered a failure
         if (failedTransactionIds.has(transactionId)) {
           result.skippedCount++;
           result.transactions.skippedCount++;
           continue;
         }
 
-        // Check if transaction references a category that failed synchronization in step 4
+        // Account dependency check: source or destination account failed in Stage 1
+        const sourceAcc = entry.payload.account_id ?? entry.payload.accountId;
+        const destAcc = entry.payload.destination_account_id ?? entry.payload.destinationAccountId;
+        if (
+          (sourceAcc && failedAccountIds.has(String(sourceAcc))) ||
+          (destAcc && failedAccountIds.has(String(destAcc)))
+        ) {
+          result.failedCount++;
+          result.transactions.failedCount++;
+          result.transactions.dependencyBlockedCount++;
+          failedTransactionIds.add(transactionId);
+
+          const failedAccId = sourceAcc && failedAccountIds.has(String(sourceAcc)) ? sourceAcc : destAcc;
+          const errorMsg = `Cannot sync transaction '${transactionId}': referenced account '${failedAccId}' failed synchronization.`;
+          result.errors.push({
+            entity: 'transactions',
+            entityId: transactionId,
+            outboxId: entry.id,
+            error: errorMsg,
+            category: 'dependency'
+          });
+          continue;
+        }
+
+        // Category dependency check: category failed in Stage 2
         const rawCategory = entry.payload.category_id ?? entry.payload.categoryId;
         if (
           rawCategory !== null &&
@@ -338,7 +551,397 @@ export class ManualSyncCoordinator {
         }
       }
 
-      // 6. Update remaining still pending count scoped to authenticated user
+      // -----------------------------------------------------------------------
+      // STAGE 4: LENDERS
+      // -----------------------------------------------------------------------
+      for (const entry of lenderEntries) {
+        const lenderId = entry.entityId;
+
+        if (failedLenderIds.has(lenderId)) {
+          result.skippedCount++;
+          result.lenders.skippedCount++;
+          continue;
+        }
+
+        result.totalProcessed++;
+
+        try {
+          if (!this.lenderDispatcher) {
+            throw new Error('LenderSyncDispatcher is not configured.');
+          }
+          await this.lenderDispatcher.dispatch(entry);
+          result.syncedCount++;
+          result.lenders.syncedCount++;
+        } catch (error) {
+          result.failedCount++;
+          result.lenders.failedCount++;
+          failedLenderIds.add(lenderId);
+
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          result.errors.push({
+            entity: 'lenders',
+            entityId: lenderId,
+            outboxId: entry.id,
+            error: errorMsg,
+            category: this.classifyError(error)
+          });
+        }
+      }
+
+      // -----------------------------------------------------------------------
+      // STAGE 5: BORROWINGS (INSERTS)
+      // Must precede Repayments (Stage 6) so foreign keys on borrowing_id are satisfied
+      // -----------------------------------------------------------------------
+      for (const entry of borrowingInsertEntries) {
+        const borrowingId = entry.entityId;
+
+        if (failedBorrowingIds.has(borrowingId)) {
+          result.skippedCount++;
+          result.borrowings.skippedCount++;
+          continue;
+        }
+
+        // Dependency validation against upstream failures
+        const lenderId = String(entry.payload.lender_id ?? entry.payload.lenderId ?? '');
+        const receivingAccountId = String(
+          entry.payload.receiving_account_id ?? entry.payload.receivingAccountId ?? ''
+        );
+        const transactionId = String(
+          entry.payload.transaction_id ?? entry.payload.transactionId ?? ''
+        );
+
+        if (lenderId && failedLenderIds.has(lenderId)) {
+          result.failedCount++;
+          result.borrowings.failedCount++;
+          result.borrowings.dependencyBlockedCount++;
+          failedBorrowingIds.add(borrowingId);
+
+          result.errors.push({
+            entity: 'borrowings',
+            entityId: borrowingId,
+            outboxId: entry.id,
+            error: `Cannot sync borrowing '${borrowingId}': referenced lender '${lenderId}' failed synchronization.`,
+            category: 'dependency'
+          });
+          continue;
+        }
+
+        if (receivingAccountId && failedAccountIds.has(receivingAccountId)) {
+          result.failedCount++;
+          result.borrowings.failedCount++;
+          result.borrowings.dependencyBlockedCount++;
+          failedBorrowingIds.add(borrowingId);
+
+          result.errors.push({
+            entity: 'borrowings',
+            entityId: borrowingId,
+            outboxId: entry.id,
+            error: `Cannot sync borrowing '${borrowingId}': referenced receiving account '${receivingAccountId}' failed synchronization.`,
+            category: 'dependency'
+          });
+          continue;
+        }
+
+        if (transactionId && failedTransactionIds.has(transactionId)) {
+          result.failedCount++;
+          result.borrowings.failedCount++;
+          result.borrowings.dependencyBlockedCount++;
+          failedBorrowingIds.add(borrowingId);
+
+          result.errors.push({
+            entity: 'borrowings',
+            entityId: borrowingId,
+            outboxId: entry.id,
+            error: `Cannot sync borrowing '${borrowingId}': referenced transfer transaction '${transactionId}' failed synchronization.`,
+            category: 'dependency'
+          });
+          continue;
+        }
+
+        result.totalProcessed++;
+
+        try {
+          if (!this.borrowingDispatcher) {
+            throw new Error('BorrowingSyncDispatcher is not configured.');
+          }
+          await this.borrowingDispatcher.dispatch(entry);
+          result.syncedCount++;
+          result.borrowings.syncedCount++;
+        } catch (error) {
+          result.failedCount++;
+          result.borrowings.failedCount++;
+          failedBorrowingIds.add(borrowingId);
+
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          const category = this.classifyError(error);
+
+          if (
+            error instanceof SyncAccountDependencyError ||
+            error instanceof SyncLenderDependencyError ||
+            error instanceof SyncTransactionDependencyError
+          ) {
+            result.borrowings.dependencyBlockedCount++;
+          }
+
+          result.errors.push({
+            entity: 'borrowings',
+            entityId: borrowingId,
+            outboxId: entry.id,
+            error: errorMsg,
+            category
+          });
+        }
+      }
+
+      // -----------------------------------------------------------------------
+      // STAGE 6: BORROWING REPAYMENTS
+      // -----------------------------------------------------------------------
+      for (const entry of repaymentEntries) {
+        const repaymentId = entry.entityId;
+
+        // Dependency validation against upstream failures
+        const borrowingId = String(entry.payload.borrowing_id ?? entry.payload.borrowingId ?? '');
+        const lenderId = String(entry.payload.lender_id ?? entry.payload.lenderId ?? '');
+        const paymentAccountId = String(
+          entry.payload.payment_account_id ?? entry.payload.paymentAccountId ?? ''
+        );
+        const transactionId = String(
+          entry.payload.transaction_id ?? entry.payload.transactionId ?? ''
+        );
+
+        if (borrowingId && failedBorrowingIds.has(borrowingId)) {
+          result.failedCount++;
+          result.borrowing_repayments.failedCount++;
+          result.borrowing_repayments.dependencyBlockedCount++;
+
+          result.errors.push({
+            entity: 'borrowing_repayments',
+            entityId: repaymentId,
+            outboxId: entry.id,
+            error: `Cannot sync repayment '${repaymentId}': referenced borrowing '${borrowingId}' failed synchronization.`,
+            category: 'dependency'
+          });
+          continue;
+        }
+
+        if (lenderId && failedLenderIds.has(lenderId)) {
+          result.failedCount++;
+          result.borrowing_repayments.failedCount++;
+          result.borrowing_repayments.dependencyBlockedCount++;
+
+          result.errors.push({
+            entity: 'borrowing_repayments',
+            entityId: repaymentId,
+            outboxId: entry.id,
+            error: `Cannot sync repayment '${repaymentId}': referenced lender '${lenderId}' failed synchronization.`,
+            category: 'dependency'
+          });
+          continue;
+        }
+
+        if (paymentAccountId && failedAccountIds.has(paymentAccountId)) {
+          result.failedCount++;
+          result.borrowing_repayments.failedCount++;
+          result.borrowing_repayments.dependencyBlockedCount++;
+
+          result.errors.push({
+            entity: 'borrowing_repayments',
+            entityId: repaymentId,
+            outboxId: entry.id,
+            error: `Cannot sync repayment '${repaymentId}': referenced payment account '${paymentAccountId}' failed synchronization.`,
+            category: 'dependency'
+          });
+          continue;
+        }
+
+        if (transactionId && failedTransactionIds.has(transactionId)) {
+          result.failedCount++;
+          result.borrowing_repayments.failedCount++;
+          result.borrowing_repayments.dependencyBlockedCount++;
+
+          result.errors.push({
+            entity: 'borrowing_repayments',
+            entityId: repaymentId,
+            outboxId: entry.id,
+            error: `Cannot sync repayment '${repaymentId}': referenced transfer transaction '${transactionId}' failed synchronization.`,
+            category: 'dependency'
+          });
+          continue;
+        }
+
+        result.totalProcessed++;
+
+        try {
+          if (!this.borrowingRepaymentDispatcher) {
+            throw new Error('BorrowingRepaymentSyncDispatcher is not configured.');
+          }
+          await this.borrowingRepaymentDispatcher.dispatch(entry);
+          result.syncedCount++;
+          result.borrowing_repayments.syncedCount++;
+        } catch (error) {
+          result.failedCount++;
+          result.borrowing_repayments.failedCount++;
+
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          const category = this.classifyError(error);
+
+          if (
+            error instanceof SyncAccountDependencyError ||
+            error instanceof SyncLenderDependencyError ||
+            error instanceof SyncBorrowingDependencyError ||
+            error instanceof SyncTransactionDependencyError
+          ) {
+            result.borrowing_repayments.dependencyBlockedCount++;
+          }
+
+          result.errors.push({
+            entity: 'borrowing_repayments',
+            entityId: repaymentId,
+            outboxId: entry.id,
+            error: errorMsg,
+            category
+          });
+        }
+      }
+
+      // -----------------------------------------------------------------------
+      // STAGE 7: BORROWINGS (UPDATES)
+      // Must follow Repayments (Stage 6) so cloud settled repayments are present
+      // before evaluating any borrowing status validation triggers
+      // -----------------------------------------------------------------------
+      for (const entry of borrowingUpdateEntries) {
+        const borrowingId = entry.entityId;
+
+        if (failedBorrowingIds.has(borrowingId)) {
+          result.skippedCount++;
+          result.borrowings.skippedCount++;
+          continue;
+        }
+
+        // Dependency validation against upstream failures
+        const lenderId = String(entry.payload.lender_id ?? entry.payload.lenderId ?? '');
+        const receivingAccountId = String(
+          entry.payload.receiving_account_id ?? entry.payload.receivingAccountId ?? ''
+        );
+        const transactionId = String(
+          entry.payload.transaction_id ?? entry.payload.transactionId ?? ''
+        );
+
+        if (lenderId && failedLenderIds.has(lenderId)) {
+          result.failedCount++;
+          result.borrowings.failedCount++;
+          result.borrowings.dependencyBlockedCount++;
+          failedBorrowingIds.add(borrowingId);
+
+          result.errors.push({
+            entity: 'borrowings',
+            entityId: borrowingId,
+            outboxId: entry.id,
+            error: `Cannot sync borrowing '${borrowingId}': referenced lender '${lenderId}' failed synchronization.`,
+            category: 'dependency'
+          });
+          continue;
+        }
+
+        if (receivingAccountId && failedAccountIds.has(receivingAccountId)) {
+          result.failedCount++;
+          result.borrowings.failedCount++;
+          result.borrowings.dependencyBlockedCount++;
+          failedBorrowingIds.add(borrowingId);
+
+          result.errors.push({
+            entity: 'borrowings',
+            entityId: borrowingId,
+            outboxId: entry.id,
+            error: `Cannot sync borrowing '${borrowingId}': referenced receiving account '${receivingAccountId}' failed synchronization.`,
+            category: 'dependency'
+          });
+          continue;
+        }
+
+        if (transactionId && failedTransactionIds.has(transactionId)) {
+          result.failedCount++;
+          result.borrowings.failedCount++;
+          result.borrowings.dependencyBlockedCount++;
+          failedBorrowingIds.add(borrowingId);
+
+          result.errors.push({
+            entity: 'borrowings',
+            entityId: borrowingId,
+            outboxId: entry.id,
+            error: `Cannot sync borrowing '${borrowingId}': referenced transfer transaction '${transactionId}' failed synchronization.`,
+            category: 'dependency'
+          });
+          continue;
+        }
+
+        result.totalProcessed++;
+
+        try {
+          if (!this.borrowingDispatcher) {
+            throw new Error('BorrowingSyncDispatcher is not configured.');
+          }
+          await this.borrowingDispatcher.dispatch(entry);
+          result.syncedCount++;
+          result.borrowings.syncedCount++;
+        } catch (error) {
+          result.failedCount++;
+          result.borrowings.failedCount++;
+          failedBorrowingIds.add(borrowingId);
+
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          const category = this.classifyError(error);
+
+          if (
+            error instanceof SyncAccountDependencyError ||
+            error instanceof SyncLenderDependencyError ||
+            error instanceof SyncTransactionDependencyError
+          ) {
+            result.borrowings.dependencyBlockedCount++;
+          }
+
+          result.errors.push({
+            entity: 'borrowings',
+            entityId: borrowingId,
+            outboxId: entry.id,
+            error: errorMsg,
+            category
+          });
+        }
+      }
+
+      // -----------------------------------------------------------------------
+      // STAGE 9: BUDGET CLOUD PULL & LOCAL RECONCILIATION
+      // -----------------------------------------------------------------------
+      if (this.budgetReconciler) {
+        try {
+          const pullResult = await this.budgetReconciler.pullAndReconcile(currentUser.id);
+          result.pulledCount += pullResult.pulledCount;
+          result.budgets.pulledCount += pullResult.pulledCount;
+          result.budgets.conflictCount += pullResult.conflictCount;
+
+          for (const conflict of pullResult.conflicts) {
+            result.errors.push({
+              entity: 'budgets',
+              entityId: conflict.budgetId,
+              error: conflict.reason,
+              category: 'conflict'
+            });
+          }
+        } catch (error) {
+          result.failedCount++;
+          result.budgets.failedCount++;
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          result.errors.push({
+            entity: 'budgets',
+            entityId: 'reconcile',
+            error: errorMsg,
+            category: this.classifyError(error)
+          });
+        }
+      }
+
+      // 7. Update remaining still pending count scoped to authenticated user
       result.stillPendingCount = await this.outboxManager.getPendingCount(currentUser.id);
 
       return result;
@@ -350,7 +953,14 @@ export class ManualSyncCoordinator {
   private classifyError(
     error: unknown
   ): 'dependency' | 'category' | 'conflict' | 'auth' | 'database' | 'validation' | 'other' {
-    if (error instanceof SyncAccountDependencyError) return 'dependency';
+    if (
+      error instanceof SyncAccountDependencyError ||
+      error instanceof SyncTransactionDependencyError ||
+      error instanceof SyncLenderDependencyError ||
+      error instanceof SyncBorrowingDependencyError
+    ) {
+      return 'dependency';
+    }
     if (error instanceof SyncUnresolvedCategoryError) return 'category';
     if (error instanceof SyncConflictError) return 'conflict';
     if (error instanceof SyncAuthError) return 'auth';
@@ -366,11 +976,30 @@ export class ManualSyncCoordinator {
 // Default singleton instances wired to canonical repositories and outbox manager
 const defaultSupabaseAccountRepo = new SupabaseAccountRepository();
 const defaultSupabaseCategoryRepo = new SupabaseCategoryRepository();
+const defaultSupabaseBudgetRepo = new SupabaseBudgetRepository(
+  undefined,
+  defaultSupabaseCategoryRepo
+);
 const defaultSupabaseTransactionRepo = new SupabaseTransactionRepository(
   undefined,
   defaultSupabaseAccountRepo,
   defaultSupabaseCategoryRepo
 );
+const defaultSupabaseLenderRepo = new SupabaseLenderRepository();
+const defaultSupabaseBorrowingRepo = new SupabaseBorrowingRepository(
+  undefined,
+  defaultSupabaseLenderRepo,
+  defaultSupabaseAccountRepo,
+  defaultSupabaseTransactionRepo
+);
+const defaultSupabaseBorrowingRepaymentRepo = new SupabaseBorrowingRepaymentRepository(
+  undefined,
+  defaultSupabaseBorrowingRepo,
+  defaultSupabaseLenderRepo,
+  defaultSupabaseAccountRepo,
+  defaultSupabaseTransactionRepo
+);
+
 const defaultOutboxManager = new OutboxManager();
 const defaultCategoryMappingService = new CategoryMappingService(
   undefined,
@@ -390,6 +1019,13 @@ const defaultCategoryDispatcher = new CategorySyncDispatcher(
   defaultCategoryMappingService
 );
 
+const defaultBudgetDispatcher = new BudgetSyncDispatcher(
+  defaultSupabaseBudgetRepo,
+  defaultAuthAdapter,
+  defaultOutboxManager,
+  defaultCategoryMappingService
+);
+
 const defaultTransactionDispatcher = new TransactionSyncDispatcher(
   defaultSupabaseTransactionRepo,
   defaultAuthAdapter,
@@ -397,10 +1033,32 @@ const defaultTransactionDispatcher = new TransactionSyncDispatcher(
   defaultCategoryMappingService
 );
 
+const defaultLenderDispatcher = new LenderSyncDispatcher(
+  defaultSupabaseLenderRepo,
+  defaultAuthAdapter,
+  defaultOutboxManager
+);
+
+const defaultBorrowingDispatcher = new BorrowingSyncDispatcher(
+  defaultSupabaseBorrowingRepo,
+  defaultAuthAdapter,
+  defaultOutboxManager
+);
+
+const defaultBorrowingRepaymentDispatcher = new BorrowingRepaymentSyncDispatcher(
+  defaultSupabaseBorrowingRepaymentRepo,
+  defaultAuthAdapter,
+  defaultOutboxManager
+);
+
 export const defaultManualSyncCoordinator = new ManualSyncCoordinator(
   defaultAccountDispatcher,
   defaultTransactionDispatcher,
   defaultOutboxManager,
   defaultAuthAdapter,
-  defaultCategoryDispatcher
+  defaultCategoryDispatcher,
+  defaultLenderDispatcher,
+  defaultBorrowingDispatcher,
+  defaultBorrowingRepaymentDispatcher,
+  defaultBudgetDispatcher
 );

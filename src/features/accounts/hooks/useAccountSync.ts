@@ -61,15 +61,23 @@ export function useAccountSync(client = globalQueryClient) {
         }
       },
       onSuccess: (result) => {
-        // Invalidate relevant queries so UI reflects updated balances, transactions, categories, and outbox state
+        // Invalidate relevant queries so UI reflects updated balances, transactions, categories, budgets, borrowings, and outbox state
         client.invalidateQueries({ queryKey: ['accounts', user?.id] });
         client.invalidateQueries({ queryKey: ['categories', user?.id] });
         client.invalidateQueries({ queryKey: ['transactions', user?.id] });
+        client.invalidateQueries({ queryKey: ['budgets', user?.id] });
+        client.invalidateQueries({ queryKey: ['borrowings', user?.id] });
+        client.invalidateQueries({ queryKey: ['pendingOutboxBudgetIds', user?.id] });
+        client.invalidateQueries({ queryKey: ['pendingOutboxTxIds', user?.id] });
         client.invalidateQueries({ queryKey: pendingQueryKey });
 
         if (result.syncedCount > 0 && result.failedCount === 0) {
           toast.success(
             `Successfully synchronized ${result.syncedCount} update${result.syncedCount > 1 ? 's' : ''} to cloud.`
+          );
+        } else if (result.pulledCount > 0 && result.failedCount === 0) {
+          toast.success(
+            `Pulled ${result.pulledCount} update${result.pulledCount > 1 ? 's' : ''} from cloud.`
           );
         } else if (result.syncedCount > 0 && result.failedCount > 0) {
           toast.warning(

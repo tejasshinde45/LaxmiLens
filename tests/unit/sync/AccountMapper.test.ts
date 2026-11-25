@@ -295,5 +295,53 @@ describe('AccountMapper', () => {
       expect(restoredDomain.isArchived).toBe(original.isArchived);
       expect(restoredDomain.version).toBe(original.version);
     });
+
+    it('preserves systemTag and system_tag across toCloud, toDomain, create and update payloads', () => {
+      const systemAccount = new Account({
+        id: createAccountId(validId),
+        userId: createUserId(validUserId),
+        name: 'Personal Borrowings',
+        accountType: 'other',
+        openingBalancePaise: 0,
+        currency: 'INR',
+        color: '#D6AD60',
+        icon: 'hand-coins',
+        notes: 'Aggregate liability account for personal borrowings',
+        systemTag: 'personal_borrowings',
+        isArchived: false,
+        version: 1
+      });
+
+      expect(systemAccount.isSystemAccount()).toBe(true);
+      expect(systemAccount.isPersonalBorrowingsLiability()).toBe(true);
+
+      const cloudRow = AccountMapper.toCloud(systemAccount);
+      expect(cloudRow.system_tag).toBe('personal_borrowings');
+
+      const restoredDomain = AccountMapper.toDomain(cloudRow);
+      expect(restoredDomain.systemTag).toBe('personal_borrowings');
+      expect(restoredDomain.isPersonalBorrowingsLiability()).toBe(true);
+
+      const createPayload = {
+        id: validId,
+        user_id: validUserId,
+        name: 'Personal Borrowings',
+        account_type: 'other',
+        opening_balance_paise: 0,
+        system_tag: 'personal_borrowings'
+      };
+      const createdRow = AccountMapper.mapCreatePayload(createPayload);
+      expect(createdRow.system_tag).toBe('personal_borrowings');
+
+      const updatePayload = {
+        id: validId,
+        user_id: validUserId,
+        name: 'Loans from Friends',
+        version: 2,
+        system_tag: 'personal_borrowings'
+      };
+      const updatePatch = AccountMapper.mapUpdatePayload(updatePayload);
+      expect(updatePatch).not.toHaveProperty('system_tag');
+    });
   });
 });

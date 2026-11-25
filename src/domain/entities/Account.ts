@@ -17,6 +17,7 @@ export interface AccountProps {
   color?: string;
   icon?: string;
   notes?: string;
+  systemTag?: string | null;
   isArchived?: boolean;
   version?: number;
   createdAt?: Date;
@@ -34,6 +35,7 @@ export class Account {
   public readonly color?: string;
   public readonly icon?: string;
   public readonly notes?: string;
+  public readonly systemTag?: string;
   public readonly isArchived: boolean;
   public readonly version: number;
   public readonly createdAt: Date;
@@ -63,6 +65,7 @@ export class Account {
     this.color = props.color;
     this.icon = props.icon;
     this.notes = props.notes?.trim();
+    this.systemTag = props.systemTag?.trim() || undefined;
     this.isArchived = props.isArchived ?? false;
     this.version = props.version ?? 1;
     this.createdAt = props.createdAt ?? now;
@@ -85,5 +88,13 @@ export class Account {
 
   public isCreditCard(): boolean {
     return this.accountType === 'credit_card';
+  }
+
+  public isSystemAccount(): boolean {
+    return Boolean(this.systemTag);
+  }
+
+  public isPersonalBorrowingsLiability(): boolean {
+    return this.systemTag === 'personal_borrowings';
   }
 }

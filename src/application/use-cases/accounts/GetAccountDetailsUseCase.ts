@@ -50,6 +50,7 @@ export class GetAccountDetailsUseCase {
       color: account.color,
       icon: account.icon,
       notes: account.notes,
+      systemTag: account.systemTag,
       isArchived: account.isArchived,
       isCreditCard: account.isCreditCard(),
       version: account.version,

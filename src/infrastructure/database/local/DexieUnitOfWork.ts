@@ -16,6 +16,10 @@ export class DexieUnitOfWork implements UnitOfWork {
         this.database.accounts,
         this.database.transactions,
         this.database.categories,
+        this.database.budgets,
+        this.database.lenders,
+        this.database.borrowings,
+        this.database.borrowingRepayments,
         this.database.syncOutbox
       ];
       this.tables = candidates.filter((t): t is Table<any, any> => Boolean(t));
