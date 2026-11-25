@@ -400,6 +400,15 @@ describe('Database Migration & RLS Security Validation', () => {
     // 6. Identity immutability, Gregorian date, metadata integer validation & monotonic rules
     expect(migrationContent).toContain("PERFORM public.assert_valid_gregorian_date(NEW.trigger_date, 'trigger_date');");
     expect(migrationContent).toContain('NEW.dedupe_key IS DISTINCT FROM OLD.dedupe_key');
+    expect(migrationContent).toContain('NEW.entity_type IS DISTINCT FROM OLD.entity_type');
+    expect(migrationContent).toContain('NEW.entity_id IS DISTINCT FROM OLD.entity_id');
+    expect(migrationContent).toContain('NEW.action_route IS DISTINCT FROM OLD.action_route');
+    expect(migrationContent).toContain('NEW.metadata_json IS DISTINCT FROM OLD.metadata_json');
+    expect(migrationContent).toContain("left(action_route, 2) <> '//'");
+    expect(migrationContent).toContain('position(chr(92) in action_route) = 0');
+    expect(migrationContent).toContain("position('://' in action_route) = 0");
+    expect(migrationContent).toContain('9007199254740991');
+    expect(migrationContent).toContain('-9007199254740991');
     expect(migrationContent).toContain("OLD.category = 'budget_warning' AND NEW.category = 'budget_exceeded'");
     expect(migrationContent).toContain('Severity downgrade prohibited on notification');
     expect(migrationContent).toContain('dismissed status and timestamps are locked');

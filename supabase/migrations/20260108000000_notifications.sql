@@ -67,9 +67,16 @@ CREATE TABLE IF NOT EXISTS public.notifications (
         trigger_date ~ '^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$'
     ),
     CONSTRAINT notifications_action_route_safe CHECK (
-        length(trim(action_route)) > 0
-        AND left(trim(action_route), 1) = '/'
+        action_route = btrim(action_route)
+        AND length(action_route) BETWEEN 1 AND 255
+        AND left(action_route, 1) = '/'
+        AND left(action_route, 2) <> '//'
+        AND position('//' in action_route) = 0
+        AND position(chr(92) in action_route) = 0
         AND position('://' in action_route) = 0
+        AND position(':' in action_route) = 0
+        AND position('..' in action_route) = 0
+        AND action_route ~ '^(/$|/(budgets|recurring|dashboard|transactions|accounts|borrowings|analytics|calendar|reports|settings|notifications)([/?][a-zA-Z0-9/_=&%-]*)?$)'
     ),
     CONSTRAINT notifications_metadata_is_object CHECK (
         jsonb_typeof(metadata_json) = 'object'
@@ -232,8 +239,8 @@ BEGIN
                     USING ERRCODE = '22000';
             END IF;
             v_num := (v_json_val #>> '{}')::NUMERIC;
-            IF trunc(v_num) <> v_num OR v_num < 0 THEN
-                RAISE EXCEPTION 'Invalid notification % metadata field %: must be a non-negative integer.',
+            IF trunc(v_num) <> v_num OR v_num < 0 OR v_num > 9007199254740991 THEN
+                RAISE EXCEPTION 'Invalid notification % metadata field %: must be a non-negative safe integer (0..9007199254740991).',
                     NEW.id, v_field
                     USING ERRCODE = '22000';
             END IF;
@@ -248,8 +255,8 @@ BEGIN
                 USING ERRCODE = '22000';
         END IF;
         v_num := (v_json_val #>> '{}')::NUMERIC;
-        IF trunc(v_num) <> v_num THEN
-            RAISE EXCEPTION 'Invalid notification % metadata field daysUntilDue: must be an integer.',
+        IF trunc(v_num) <> v_num OR v_num < -9007199254740991 OR v_num > 9007199254740991 THEN
+            RAISE EXCEPTION 'Invalid notification % metadata field daysUntilDue: must be a safe integer (-9007199254740991..9007199254740991).',
                 NEW.id
                 USING ERRCODE = '22000';
         END IF;
@@ -298,7 +305,11 @@ BEGIN
             NEW.status IS DISTINCT FROM OLD.status OR
             NEW.title IS DISTINCT FROM OLD.title OR
             NEW.message IS DISTINCT FROM OLD.message OR
+            NEW.entity_type IS DISTINCT FROM OLD.entity_type OR
+            NEW.entity_id IS DISTINCT FROM OLD.entity_id OR
             NEW.trigger_date IS DISTINCT FROM OLD.trigger_date OR
+            NEW.action_route IS DISTINCT FROM OLD.action_route OR
+            NEW.metadata_json IS DISTINCT FROM OLD.metadata_json OR
             NEW.read_at IS DISTINCT FROM OLD.read_at OR
             NEW.dismissed_at IS DISTINCT FROM OLD.dismissed_at
         ) THEN
