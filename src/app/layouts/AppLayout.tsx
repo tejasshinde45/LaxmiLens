@@ -28,21 +28,22 @@ export const AppLayout: React.FC = () => {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#101010] text-[#F5F1E8] flex overflow-x-hidden">
+    <div className="min-h-screen bg-[#101010] text-[#F5F1E8] flex overflow-x-hidden print:block print:min-h-0 print:bg-white print:text-[#111111] print:overflow-visible">
       {/* Desktop Left Sidebar (visible on lg screens >= 1024px) */}
       <Sidebar
         isCollapsed={isSidebarCollapsed}
         onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
-        className="hidden lg:flex"
+        className="hidden lg:flex print:hidden"
       />
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 print:block">
         <Header
           onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
+          className="print:hidden"
         />
 
-        <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 md:px-8 py-6 pb-24 lg:pb-12">
+        <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 md:px-8 py-6 pb-24 lg:pb-12 print:max-w-none print:px-0 print:py-0 print:pb-0">
           <Outlet />
         </main>
       </div>
@@ -50,6 +51,7 @@ export const AppLayout: React.FC = () => {
       {/* Mobile Bottom Navigation (visible on mobile/tablet < 1024px) */}
       <BottomNavigation
         onQuickAdd={() => setIsQuickAddOpen(true)}
+        className="print:hidden"
       />
 
       {/* Global Command Palette */}

@@ -116,7 +116,8 @@ import {
   MarkAllNotificationsReadUseCase,
   DismissNotificationUseCase,
   GetNotificationPreferencesUseCase,
-  UpdateNotificationPreferencesUseCase
+  UpdateNotificationPreferencesUseCase,
+  GenerateFinancialReportUseCase
 } from '@/application';
 
 export const DATABASE_PREFIX = 'LaxmiLens_LocalDB';
@@ -190,6 +191,9 @@ export interface UserRepositories {
   dismissNotificationUseCase: DismissNotificationUseCase;
   getNotificationPreferencesUseCase: GetNotificationPreferencesUseCase;
   updateNotificationPreferencesUseCase: UpdateNotificationPreferencesUseCase;
+
+  // Pre-wired financial reporting use case
+  generateFinancialReportUseCase: GenerateFinancialReportUseCase;
 }
 
 export class DatabaseManager {
@@ -771,6 +775,11 @@ export class DatabaseManager {
       outboxManager,
       unitOfWork
     );
+    const generateFinancialReportUseCase = new GenerateFinancialReportUseCase(
+      accountRepo,
+      transactionRepo,
+      categoryRepo
+    );
 
     this.activeRepositories = {
       userId,
@@ -825,7 +834,8 @@ export class DatabaseManager {
       markAllNotificationsReadUseCase,
       dismissNotificationUseCase,
       getNotificationPreferencesUseCase,
-      updateNotificationPreferencesUseCase
+      updateNotificationPreferencesUseCase,
+      generateFinancialReportUseCase
     };
 
     return this.activeRepositories;

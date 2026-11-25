@@ -10,6 +10,8 @@ export * from './services/BudgetSpendingService';
 export * from './services/FinancialAnalyticsService';
 export * from './services/FinancialReportService';
 
+export * from './use-cases/reports/GenerateFinancialReportUseCase';
+
 export * from './use-cases/accounts/CreateAccountUseCase';
 export * from './use-cases/accounts/UpdateAccountUseCase';
 export * from './use-cases/accounts/ArchiveAccountUseCase';

@@ -60,7 +60,7 @@ export const BottomNavigation: React.FC<BottomNavigationProps> = ({
       <nav
         aria-label="Mobile Bottom Navigation"
         className={cn(
-          'fixed bottom-0 left-0 right-0 z-40 flex h-16 items-center justify-around border-t border-[#303030] bg-[#101010]/95 px-2 backdrop-blur-lg lg:hidden pb-safe select-none',
+          'fixed bottom-0 left-0 right-0 z-40 flex h-16 items-center justify-around border-t border-[#303030] bg-[#101010]/95 px-2 backdrop-blur-lg lg:hidden pb-safe select-none print:hidden',
           className
         )}
       >
