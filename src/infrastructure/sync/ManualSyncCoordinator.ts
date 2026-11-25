@@ -295,7 +295,9 @@ export class ManualSyncCoordinator {
       const categoryEntries: LocalOutboxRecord[] = [];
       const budgetEntries: LocalOutboxRecord[] = [];
       const transactionEntries: LocalOutboxRecord[] = [];
-      const recurringRuleEntries: LocalOutboxRecord[] = [];
+      const recurringRuleInsertEntries: LocalOutboxRecord[] = [];
+      const recurringRuleUpdateEntries: LocalOutboxRecord[] = [];
+      const recurringRuleDeleteEntries: LocalOutboxRecord[] = [];
       const recurringOccurrenceEntries: LocalOutboxRecord[] = [];
       const lenderEntries: LocalOutboxRecord[] = [];
       const borrowingInsertEntries: LocalOutboxRecord[] = [];
@@ -313,7 +315,13 @@ export class ManualSyncCoordinator {
         } else if (entry.entity === 'transactions') {
           transactionEntries.push(entry);
         } else if (entry.entity === 'recurring_rules' && this.recurringRuleDispatcher) {
-          recurringRuleEntries.push(entry);
+          if (entry.operation === 'INSERT') {
+            recurringRuleInsertEntries.push(entry);
+          } else if (entry.operation === 'UPDATE') {
+            recurringRuleUpdateEntries.push(entry);
+          } else {
+            recurringRuleDeleteEntries.push(entry);
+          }
         } else if (entry.entity === 'recurring_occurrences' && this.recurringOccurrenceDispatcher) {
           recurringOccurrenceEntries.push(entry);
         } else if (entry.entity === 'lenders' && this.lenderDispatcher) {
@@ -341,6 +349,7 @@ export class ManualSyncCoordinator {
       const failedTransactionIds = new Set<string>();
       const failedRecurringRuleIds = new Set<string>();
       const failedRecurringOccurrenceIds = new Set<string>();
+      const rulesWithFailedOccurrences = new Set<string>();
       const failedLenderIds = new Set<string>();
       const failedBorrowingIds = new Set<string>();
 
@@ -596,9 +605,10 @@ export class ManualSyncCoordinator {
       }
 
       // -----------------------------------------------------------------------
-      // STAGE 3B: RECURRING RULES (Accounts + Categories -> Recurring Rules)
+      // STAGE 3B: RECURRING RULES (INSERTS -> UPDATES)
+      // Must precede Stage 3C (Occurrences) so FK and active schedule invariants pass.
       // -----------------------------------------------------------------------
-      for (const entry of recurringRuleEntries) {
+      for (const entry of [...recurringRuleInsertEntries, ...recurringRuleUpdateEntries]) {
         const ruleId = entry.entityId;
         if (failedRecurringRuleIds.has(ruleId)) {
           result.skippedCount++;
@@ -658,7 +668,9 @@ export class ManualSyncCoordinator {
       }
 
       // -----------------------------------------------------------------------
-      // STAGE 3C: RECURRING OCCURRENCES (Recurring Rules + Transactions -> Occurrences)
+      // STAGE 3C: RECURRING OCCURRENCES (INSERTS & UPDATES)
+      // Must follow Rule INSERTS/UPDATES and Transactions, and precede Rule DELETES
+      // so offline create -> confirm -> delete sequences synchronize cleanly.
       // -----------------------------------------------------------------------
       for (const entry of recurringOccurrenceEntries) {
         const occId = entry.entityId;
@@ -674,6 +686,7 @@ export class ManualSyncCoordinator {
           result.recurring_occurrences!.failedCount++;
           result.recurring_occurrences!.dependencyBlockedCount++;
           failedRecurringOccurrenceIds.add(occId);
+          rulesWithFailedOccurrences.add(ruleId);
           result.errors.push({
             entity: 'recurring_occurrences',
             entityId: occId,
@@ -690,6 +703,7 @@ export class ManualSyncCoordinator {
           result.recurring_occurrences!.failedCount++;
           result.recurring_occurrences!.dependencyBlockedCount++;
           failedRecurringOccurrenceIds.add(occId);
+          if (ruleId) rulesWithFailedOccurrences.add(ruleId);
           result.errors.push({
             entity: 'recurring_occurrences',
             entityId: occId,
@@ -709,9 +723,45 @@ export class ManualSyncCoordinator {
           result.failedCount++;
           result.recurring_occurrences!.failedCount++;
           failedRecurringOccurrenceIds.add(occId);
+          if (ruleId) rulesWithFailedOccurrences.add(ruleId);
           result.errors.push({
             entity: 'recurring_occurrences',
             entityId: occId,
+            outboxId: entry.id,
+            error: error instanceof Error ? error.message : String(error),
+            category: this.classifyError(error)
+          });
+        }
+      }
+
+      // -----------------------------------------------------------------------
+      // STAGE 3D: RECURRING RULES (DELETES / TOMBSTONES)
+      // Executed after Stage 3C so any pending occurrences settle before rule tombstone.
+      // Also defers deletion if any occurrence for the rule failed in Stage 3C.
+      // -----------------------------------------------------------------------
+      for (const entry of recurringRuleDeleteEntries) {
+        const ruleId = entry.entityId;
+        if (failedRecurringRuleIds.has(ruleId) || rulesWithFailedOccurrences.has(ruleId)) {
+          result.skippedCount++;
+          result.recurring_rules!.skippedCount++;
+          if (rulesWithFailedOccurrences.has(ruleId)) {
+            result.recurring_rules!.dependencyBlockedCount++;
+          }
+          continue;
+        }
+
+        result.totalProcessed++;
+        try {
+          await this.recurringRuleDispatcher!.dispatch(entry);
+          result.syncedCount++;
+          result.recurring_rules!.syncedCount++;
+        } catch (error) {
+          result.failedCount++;
+          result.recurring_rules!.failedCount++;
+          failedRecurringRuleIds.add(ruleId);
+          result.errors.push({
+            entity: 'recurring_rules',
+            entityId: ruleId,
             outboxId: entry.id,
             error: error instanceof Error ? error.message : String(error),
             category: this.classifyError(error)

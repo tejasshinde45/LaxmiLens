@@ -266,18 +266,64 @@ describe('Database Migration & RLS Security Validation', () => {
 
     const migrationContent = fs.readFileSync(migrationPath, 'utf-8');
 
+    // 1. Tables, constraints, and non-partial FK indexes
     expect(migrationContent).toContain('CREATE TABLE IF NOT EXISTS public.recurring_rules');
     expect(migrationContent).toContain('CREATE TABLE IF NOT EXISTS public.recurring_occurrences');
+    expect(migrationContent).toContain('CONSTRAINT recurring_rules_title_not_empty CHECK (length(trim(title)) > 0)');
+    expect(migrationContent).toContain('CONSTRAINT recurring_rules_confirmation_required CHECK (requires_user_confirmation = true)');
+    expect(migrationContent).toContain('AND next_due_date >= start_date');
+    expect(migrationContent).toContain('CONSTRAINT recurring_occurrences_idempotency_key_not_empty CHECK (length(trim(idempotency_key)) > 0)');
+    expect(migrationContent).toContain('CONSTRAINT recurring_occurrences_tx_status_consistency');
+    expect(migrationContent).toContain('CONSTRAINT recurring_occurrences_snooze_status_consistency');
     expect(migrationContent).toContain('CREATE UNIQUE INDEX IF NOT EXISTS idx_recurring_occurrences_active_slot');
     expect(migrationContent).toContain('CREATE UNIQUE INDEX IF NOT EXISTS idx_recurring_occurrences_active_transaction');
+    expect(migrationContent).toContain('CREATE INDEX IF NOT EXISTS idx_recurring_rules_account_id ON public.recurring_rules(account_id);');
+    expect(migrationContent).toContain('CREATE INDEX IF NOT EXISTS idx_recurring_rules_category_id ON public.recurring_rules(category_id);');
+    expect(migrationContent).toContain('CREATE INDEX IF NOT EXISTS idx_recurring_occurrences_transaction_id ON public.recurring_occurrences(transaction_id);');
+
+    // 2. RLS policies & least-privilege grants
     expect(migrationContent).toContain('ALTER TABLE public.recurring_rules ENABLE ROW LEVEL SECURITY');
     expect(migrationContent).toContain('ALTER TABLE public.recurring_occurrences ENABLE ROW LEVEL SECURITY');
     expect(migrationContent).toContain('GRANT SELECT, INSERT, UPDATE ON TABLE public.recurring_rules TO authenticated');
     expect(migrationContent).toContain('GRANT SELECT, INSERT, UPDATE ON TABLE public.recurring_occurrences TO authenticated');
+    expect(migrationContent).not.toContain('ON public.recurring_rules FOR DELETE');
+    expect(migrationContent).not.toContain('ON public.recurring_occurrences FOR DELETE');
+
+    // 3. Hardened SECURITY DEFINER, search_path, postgres ownership & role checks
+    expect(migrationContent).toContain('ALTER FUNCTION public.assert_valid_gregorian_date(TEXT, TEXT) OWNER TO postgres;');
     expect(migrationContent).toContain('ALTER FUNCTION public.validate_recurring_rule_record() OWNER TO postgres;');
     expect(migrationContent).toContain('ALTER FUNCTION public.validate_recurring_occurrence_record() OWNER TO postgres;');
+    expect(migrationContent).toContain('ALTER FUNCTION public.protect_recurring_linked_transactions() OWNER TO postgres;');
+    expect(migrationContent).toContain('REVOKE ALL ON FUNCTION public.assert_valid_gregorian_date(TEXT, TEXT) FROM PUBLIC, anon, authenticated;');
+    expect(migrationContent).toContain('REVOKE ALL ON FUNCTION public.validate_recurring_rule_record() FROM PUBLIC, anon, authenticated;');
+    expect(migrationContent).toContain('REVOKE ALL ON FUNCTION public.validate_recurring_occurrence_record() FROM PUBLIC, anon, authenticated;');
+    expect(migrationContent).toContain('REVOKE ALL ON FUNCTION public.protect_recurring_linked_transactions() FROM PUBLIC, anon, authenticated;');
     expect(migrationContent).toContain('SET search_path = pg_catalog, public');
-    expect(migrationContent).toContain('confirmed occurrence cannot change status');
+    expect(migrationContent).toContain("COALESCE(NULLIF(NULLIF(current_setting('role', true), ''), 'none'), current_user)");
+
+    // 4. Strict Gregorian leap-year validation, version=1 init, rule completed & tombstone locking
+    expect(migrationContent).toContain('(v_year % 4 = 0 AND v_year % 100 <> 0) OR (v_year % 400 = 0)');
+    expect(migrationContent).toContain('version must initialize to 1 on insert');
+    expect(migrationContent).toContain('Illegal modification on completed recurring rule');
+    expect(migrationContent).toContain('Invalid tombstone on recurring rule %: financial and schedule fields cannot change during deletion.');
+
+    // 5. Occurrence immutability, terminal states, tombstone lock & transaction linkage parity
+    expect(migrationContent).toContain('cannot attach or update occurrence on tombstoned schedule');
+    expect(migrationContent).toContain('cannot be earlier than schedule start_date');
+    expect(migrationContent).toContain('Linked transaction % has been soft-deleted.');
+    expect(migrationContent).toContain('Transaction type mismatch on recurring occurrence');
+    expect(migrationContent).toContain('Immutability violation on confirmed recurring occurrence %: status, transaction_id, confirmed_at, skipped_at, dismissed_at, snoozed_until_date, and deleted_at are locked.');
+    expect(migrationContent).toContain('NEW.skipped_at IS DISTINCT FROM OLD.skipped_at');
+    expect(migrationContent).toContain('NEW.dismissed_at IS DISTINCT FROM OLD.dismissed_at');
+    expect(migrationContent).toContain('terminal status % is irreversible.');
+    expect(migrationContent).toContain('Illegal modification: Tombstoned recurring occurrence % cannot be altered.');
+
+    // 6. Targeted protection on confirmed recurring linked transactions in public.transactions
+    expect(migrationContent).toContain('CREATE TRIGGER trg_protect_recurring_linked_transactions');
+    expect(migrationContent).toContain('BEFORE UPDATE OR DELETE ON public.transactions');
+    expect(migrationContent).toContain('Cannot change amount_paise on transaction');
+    expect(migrationContent).toContain('IF NEW.currency IS DISTINCT FROM OLD.currency THEN');
+    expect(migrationContent).toContain('Cannot change currency on transaction');
   });
 
   it('validates that all RAISE statements across all migrations have matching format placeholder and argument counts', () => {

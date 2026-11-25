@@ -97,9 +97,22 @@ export class SupabaseRecurringOccurrenceRepository implements ISupabaseRecurring
         const existingById = await this.findById(occurrence.id, occurrence.user_id, {
           includeDeleted: true
         });
-        if (existingById && existingById.user_id === occurrence.user_id && !existingById.deleted_at) {
-          return existingById;
+        if (existingById) {
+          if (existingById.deleted_at) {
+            throw new SyncConflictError(
+              `Recurring occurrence '${occurrence.id}' was previously tombstoned in cloud and cannot be re-inserted.`,
+              existingById
+            );
+          }
+          if (this.areOccurrenceRowsEquivalent(existingById, occurrence)) {
+            return existingById;
+          }
+          throw new SyncConflictError(
+            `Semantic conflict detected for recurring occurrence '${occurrence.id}' in cloud.`,
+            existingById
+          );
         }
+
         const existingBySlot = await this.findByRuleAndDate(
           occurrence.user_id,
           occurrence.recurring_rule_id,
@@ -107,13 +120,14 @@ export class SupabaseRecurringOccurrenceRepository implements ISupabaseRecurring
         );
         if (existingBySlot) {
           if (
-            existingBySlot.id === occurrence.id ||
-            existingBySlot.idempotency_key === occurrence.idempotency_key
+            existingBySlot.id === occurrence.id &&
+            this.areOccurrenceRowsEquivalent(existingBySlot, occurrence)
           ) {
             return existingBySlot;
           }
           throw new SyncConflictError(
-            `Duplicate cloud occurrence slot (${occurrence.recurring_rule_id}, ${occurrence.occurrence_date}) occupied by '${existingBySlot.id}'.`
+            `Duplicate cloud occurrence slot (${occurrence.recurring_rule_id}, ${occurrence.occurrence_date}) occupied by '${existingBySlot.id}' (status '${existingBySlot.status}').`,
+            existingBySlot
           );
         }
       }
@@ -205,15 +219,96 @@ export class SupabaseRecurringOccurrenceRepository implements ISupabaseRecurring
           `Recurring occurrence '${id}' not found in cloud for update.`
         );
       }
-      if (existing.version >= expectedVersion + 1 && !existing.deleted_at) {
+      if (existing.user_id !== userId) {
+        throw new SyncConflictError(
+          `Recurring occurrence '${id}' belongs to another user.`,
+          existing
+        );
+      }
+      if (existing.deleted_at !== null && existing.deleted_at !== undefined) {
+        throw new SyncConflictError(
+          `Recurring occurrence '${id}' has been deleted (tombstoned) in cloud and cannot be updated.`,
+          existing
+        );
+      }
+      const targetVersion = expectedVersion + 1;
+      if (
+        existing.version === targetVersion &&
+        this.areOccurrencePatchFieldsMatching(existing, cleanPatch)
+      ) {
         return existing;
       }
       throw new SyncConflictError(
-        `Optimistic concurrency conflict updating recurring occurrence '${id}'.`
+        `Optimistic concurrency conflict updating recurring occurrence '${id}' (expected version ${expectedVersion}, cloud version ${existing.version}).`,
+        existing
       );
     }
 
     return data as CloudRecurringOccurrenceRow;
+  }
+
+  private areTimestampsEqual(a: string | null | undefined, b: string | null | undefined): boolean {
+    if (!a && !b) return true;
+    if (!a || !b) return false;
+    return new Date(a).getTime() === new Date(b).getTime();
+  }
+
+  private areOccurrenceRowsEquivalent(
+    existing: CloudRecurringOccurrenceRow,
+    incoming: CloudRecurringOccurrenceRow
+  ): boolean {
+    return (
+      existing.user_id === incoming.user_id &&
+      existing.recurring_rule_id === incoming.recurring_rule_id &&
+      existing.occurrence_date === incoming.occurrence_date &&
+      existing.idempotency_key === incoming.idempotency_key &&
+      existing.status === incoming.status &&
+      (existing.snoozed_until_date ?? null) === (incoming.snoozed_until_date ?? null) &&
+      (existing.transaction_id ?? null) === (incoming.transaction_id ?? null) &&
+      this.areTimestampsEqual(existing.confirmed_at, incoming.confirmed_at) &&
+      this.areTimestampsEqual(existing.skipped_at, incoming.skipped_at) &&
+      this.areTimestampsEqual(existing.dismissed_at, incoming.dismissed_at) &&
+      (existing.deleted_at ?? null) === (incoming.deleted_at ?? null) &&
+      existing.version === incoming.version
+    );
+  }
+
+  private areOccurrencePatchFieldsMatching(
+    existing: CloudRecurringOccurrenceRow,
+    patch: Partial<CloudRecurringOccurrenceRow>
+  ): boolean {
+    if (patch.status !== undefined && existing.status !== patch.status) return false;
+    if (
+      patch.snoozed_until_date !== undefined &&
+      (existing.snoozed_until_date ?? null) !== (patch.snoozed_until_date ?? null)
+    ) {
+      return false;
+    }
+    if (
+      patch.transaction_id !== undefined &&
+      (existing.transaction_id ?? null) !== (patch.transaction_id ?? null)
+    ) {
+      return false;
+    }
+    if (
+      patch.confirmed_at !== undefined &&
+      !this.areTimestampsEqual(existing.confirmed_at, patch.confirmed_at)
+    ) {
+      return false;
+    }
+    if (
+      patch.skipped_at !== undefined &&
+      !this.areTimestampsEqual(existing.skipped_at, patch.skipped_at)
+    ) {
+      return false;
+    }
+    if (
+      patch.dismissed_at !== undefined &&
+      !this.areTimestampsEqual(existing.dismissed_at, patch.dismissed_at)
+    ) {
+      return false;
+    }
+    return true;
   }
 
   public async findById(

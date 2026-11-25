@@ -99,14 +99,16 @@ export class SupabaseRecurringRuleRepository implements ISupabaseRecurringRuleRe
         if (existing) {
           if (existing.deleted_at) {
             throw new SyncConflictError(
-              `Recurring rule '${rule.id}' was previously tombstoned in cloud and cannot be re-inserted.`
+              `Recurring rule '${rule.id}' was previously tombstoned in cloud and cannot be re-inserted.`,
+              existing
             );
           }
-          if (existing.user_id === rule.user_id && existing.start_date === rule.start_date) {
+          if (this.areRuleRowsEquivalentForInsert(existing, rule)) {
             return existing;
           }
           throw new SyncConflictError(
-            `ID conflict detected for recurring rule '${rule.id}' in cloud.`
+            `Semantic conflict detected for recurring rule '${rule.id}' in cloud.`,
+            existing
           );
         }
       }
@@ -175,11 +177,25 @@ export class SupabaseRecurringRuleRepository implements ISupabaseRecurringRuleRe
       if (!existing) {
         throw new SyncConflictError(`Recurring rule '${id}' not found in cloud for update.`);
       }
-      if (existing.version >= expectedVersion + 1 && !existing.deleted_at) {
+      if (existing.user_id !== userId) {
+        throw new SyncConflictError(`Recurring rule '${id}' belongs to another user.`, existing);
+      }
+      if (existing.deleted_at !== null && existing.deleted_at !== undefined) {
+        throw new SyncConflictError(
+          `Recurring rule '${id}' has been deleted (tombstoned) in cloud and cannot be updated.`,
+          existing
+        );
+      }
+      const targetVersion = expectedVersion + 1;
+      if (
+        existing.version === targetVersion &&
+        this.areRulePatchFieldsMatching(existing, cleanPatch)
+      ) {
         return existing;
       }
       throw new SyncConflictError(
-        `Optimistic concurrency conflict updating recurring rule '${id}' (expected version ${expectedVersion}, cloud version ${existing.version}).`
+        `Optimistic concurrency conflict updating recurring rule '${id}' (expected version ${expectedVersion}, cloud version ${existing.version}).`,
+        existing
       );
     }
 
@@ -222,15 +238,93 @@ export class SupabaseRecurringRuleRepository implements ISupabaseRecurringRuleRe
 
     if (!data) {
       const existing = await this.findById(id, userId, { includeDeleted: true });
-      if (existing && existing.deleted_at) {
+      if (!existing) {
+        throw new SyncConflictError(`Recurring rule '${id}' not found in cloud for deletion.`);
+      }
+      if (
+        existing.deleted_at !== null &&
+        existing.deleted_at !== undefined &&
+        existing.version === nextVersion &&
+        new Date(existing.deleted_at).getTime() === new Date(deletedAt).getTime()
+      ) {
         return existing;
       }
       throw new SyncConflictError(
-        `Optimistic concurrency conflict tombstoning recurring rule '${id}'.`
+        `Optimistic concurrency conflict tombstoning recurring rule '${id}' (expected version ${expectedVersion}, cloud version ${existing.version}).`,
+        existing
       );
     }
 
     return data as CloudRecurringRuleRow;
+  }
+
+  private areRuleRowsEquivalentForInsert(
+    existing: CloudRecurringRuleRow,
+    incoming: CloudRecurringRuleRow
+  ): boolean {
+    return (
+      existing.user_id === incoming.user_id &&
+      existing.title === incoming.title &&
+      (existing.description ?? null) === (incoming.description ?? null) &&
+      existing.type === incoming.type &&
+      existing.amount_paise === incoming.amount_paise &&
+      existing.account_id === incoming.account_id &&
+      (existing.category_id ?? null) === (incoming.category_id ?? null) &&
+      existing.frequency === incoming.frequency &&
+      existing.interval === incoming.interval &&
+      existing.anchor_day_of_month === incoming.anchor_day_of_month &&
+      existing.start_date === incoming.start_date &&
+      (existing.end_date ?? null) === (incoming.end_date ?? null) &&
+      existing.next_due_date === incoming.next_due_date &&
+      (existing.last_generated_date ?? null) === (incoming.last_generated_date ?? null) &&
+      existing.status === incoming.status &&
+      existing.version === incoming.version
+    );
+  }
+
+  private areRulePatchFieldsMatching(
+    existing: CloudRecurringRuleRow,
+    patch: Partial<CloudRecurringRuleRow>
+  ): boolean {
+    if (patch.title !== undefined && existing.title !== patch.title) return false;
+    if (
+      patch.description !== undefined &&
+      (existing.description ?? null) !== (patch.description ?? null)
+    ) {
+      return false;
+    }
+    if (patch.amount_paise !== undefined && existing.amount_paise !== patch.amount_paise) {
+      return false;
+    }
+    if (patch.account_id !== undefined && existing.account_id !== patch.account_id) return false;
+    if (
+      patch.category_id !== undefined &&
+      (existing.category_id ?? null) !== (patch.category_id ?? null)
+    ) {
+      return false;
+    }
+    if (patch.frequency !== undefined && existing.frequency !== patch.frequency) return false;
+    if (patch.interval !== undefined && existing.interval !== patch.interval) return false;
+    if (
+      patch.anchor_day_of_month !== undefined &&
+      existing.anchor_day_of_month !== patch.anchor_day_of_month
+    ) {
+      return false;
+    }
+    if (patch.end_date !== undefined && (existing.end_date ?? null) !== (patch.end_date ?? null)) {
+      return false;
+    }
+    if (patch.next_due_date !== undefined && existing.next_due_date !== patch.next_due_date) {
+      return false;
+    }
+    if (
+      patch.last_generated_date !== undefined &&
+      (existing.last_generated_date ?? null) !== (patch.last_generated_date ?? null)
+    ) {
+      return false;
+    }
+    if (patch.status !== undefined && existing.status !== patch.status) return false;
+    return true;
   }
 
   public async findById(
