@@ -16,6 +16,8 @@ import { DexieBorrowingRepository } from './repositories/DexieBorrowingRepositor
 import { DexieBudgetRepository } from './repositories/DexieBudgetRepository';
 import { DexieRecurringRuleRepository } from './repositories/DexieRecurringRuleRepository';
 import { DexieRecurringOccurrenceRepository } from './repositories/DexieRecurringOccurrenceRepository';
+import { DexieNotificationRepository } from './repositories/DexieNotificationRepository';
+import { DexieNotificationPreferenceRepository } from './repositories/DexieNotificationPreferenceRepository';
 import { OutboxManager } from '@/infrastructure/sync/OutboxManager';
 import { DexieUnitOfWork } from './DexieUnitOfWork';
 import { ManualSyncCoordinator } from '@/infrastructure/sync/ManualSyncCoordinator';
@@ -96,7 +98,14 @@ import {
   SkipRecurringOccurrenceUseCase,
   SnoozeRecurringOccurrenceUseCase,
   DismissRecurringOccurrenceUseCase,
-  GetRecurringOverviewUseCase
+  GetRecurringOverviewUseCase,
+  EvaluateFinancialAlertsUseCase,
+  GetNotificationsUseCase,
+  MarkNotificationReadUseCase,
+  MarkAllNotificationsReadUseCase,
+  DismissNotificationUseCase,
+  GetNotificationPreferencesUseCase,
+  UpdateNotificationPreferencesUseCase
 } from '@/application';
 
 export const DATABASE_PREFIX = 'LaxmiLens_LocalDB';
@@ -119,6 +128,8 @@ export interface UserRepositories {
   budgetRepo: DexieBudgetRepository;
   recurringRuleRepo: DexieRecurringRuleRepository;
   recurringOccurrenceRepo: DexieRecurringOccurrenceRepository;
+  notificationRepo: DexieNotificationRepository;
+  notificationPreferenceRepo: DexieNotificationPreferenceRepository;
   outboxManager: OutboxManager;
   unitOfWork: DexieUnitOfWork;
   syncCoordinator: ManualSyncCoordinator;
@@ -161,6 +172,13 @@ export interface UserRepositories {
   snoozeRecurringOccurrenceUseCase: SnoozeRecurringOccurrenceUseCase;
   dismissRecurringOccurrenceUseCase: DismissRecurringOccurrenceUseCase;
   getRecurringOverviewUseCase: GetRecurringOverviewUseCase;
+  evaluateFinancialAlertsUseCase: EvaluateFinancialAlertsUseCase;
+  getNotificationsUseCase: GetNotificationsUseCase;
+  markNotificationReadUseCase: MarkNotificationReadUseCase;
+  markAllNotificationsReadUseCase: MarkAllNotificationsReadUseCase;
+  dismissNotificationUseCase: DismissNotificationUseCase;
+  getNotificationPreferencesUseCase: GetNotificationPreferencesUseCase;
+  updateNotificationPreferencesUseCase: UpdateNotificationPreferencesUseCase;
 }
 
 export class DatabaseManager {
@@ -557,6 +575,8 @@ export class DatabaseManager {
     const budgetRepo = new DexieBudgetRepository(database);
     const recurringRuleRepo = new DexieRecurringRuleRepository(database);
     const recurringOccurrenceRepo = new DexieRecurringOccurrenceRepository(database);
+    const notificationRepo = new DexieNotificationRepository(database);
+    const notificationPreferenceRepo = new DexieNotificationPreferenceRepository(database);
 
     const ensureBorrowingsAccountUseCase = new EnsurePersonalBorrowingsAccountUseCase(
       accountRepo,
@@ -684,6 +704,38 @@ export class DatabaseManager {
       accountRepo,
       categoryRepo
     );
+    const evaluateFinancialAlertsUseCase = new EvaluateFinancialAlertsUseCase(
+      notificationRepo,
+      notificationPreferenceRepo,
+      getBudgetsOverviewUseCase,
+      getRecurringOverviewUseCase,
+      outboxManager,
+      unitOfWork
+    );
+    const getNotificationsUseCase = new GetNotificationsUseCase(notificationRepo);
+    const markNotificationReadUseCase = new MarkNotificationReadUseCase(
+      notificationRepo,
+      outboxManager,
+      unitOfWork
+    );
+    const markAllNotificationsReadUseCase = new MarkAllNotificationsReadUseCase(
+      notificationRepo,
+      outboxManager,
+      unitOfWork
+    );
+    const dismissNotificationUseCase = new DismissNotificationUseCase(
+      notificationRepo,
+      outboxManager,
+      unitOfWork
+    );
+    const getNotificationPreferencesUseCase = new GetNotificationPreferencesUseCase(
+      notificationPreferenceRepo
+    );
+    const updateNotificationPreferencesUseCase = new UpdateNotificationPreferencesUseCase(
+      notificationPreferenceRepo,
+      outboxManager,
+      unitOfWork
+    );
 
     this.activeRepositories = {
       userId,
@@ -698,6 +750,8 @@ export class DatabaseManager {
       budgetRepo,
       recurringRuleRepo,
       recurringOccurrenceRepo,
+      notificationRepo,
+      notificationPreferenceRepo,
       outboxManager,
       unitOfWork,
       syncCoordinator,
@@ -729,7 +783,14 @@ export class DatabaseManager {
       skipRecurringOccurrenceUseCase,
       snoozeRecurringOccurrenceUseCase,
       dismissRecurringOccurrenceUseCase,
-      getRecurringOverviewUseCase
+      getRecurringOverviewUseCase,
+      evaluateFinancialAlertsUseCase,
+      getNotificationsUseCase,
+      markNotificationReadUseCase,
+      markAllNotificationsReadUseCase,
+      dismissNotificationUseCase,
+      getNotificationPreferencesUseCase,
+      updateNotificationPreferencesUseCase
     };
 
     return this.activeRepositories;

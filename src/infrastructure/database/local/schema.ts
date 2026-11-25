@@ -180,6 +180,39 @@ export interface LocalBorrowingRepaymentRecord {
   updatedAt: string;
 }
 
+export interface LocalNotificationRecord {
+  id: string;
+  userId: string;
+  category: 'recurring_payment' | 'budget_warning' | 'budget_exceeded';
+  severity: 'info' | 'warning' | 'critical';
+  status: 'unread' | 'read' | 'dismissed';
+  dedupeKey: string;
+  title: string;
+  message: string;
+  entityType: 'recurring_occurrence' | 'recurring_rule' | 'budget';
+  entityId: string;
+  triggerDate: string;
+  actionRoute: string;
+  metadataJson: string;
+  readAt?: string;
+  dismissedAt?: string;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt?: string;
+}
+
+export interface LocalNotificationPreferenceRecord {
+  userId: string;
+  recurringPaymentEnabled: boolean;
+  budgetWarningEnabled: boolean;
+  budgetExceededEnabled: boolean;
+  upcomingLeadDays: number;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface LocalOutboxRecord {
   id?: number;
   userId: string;
@@ -191,6 +224,8 @@ export interface LocalOutboxRecord {
     | 'budgets'
     | 'recurring_rules'
     | 'recurring_occurrences'
+    | 'notifications'
+    | 'notification_preferences'
     | 'lenders'
     | 'borrowings'
     | 'borrowing_repayments';

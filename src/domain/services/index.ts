@@ -18,3 +18,4 @@ export class BalanceService {
 }
 
 export * from './RecurrenceScheduleService';
+export * from './NotificationIdentityService';

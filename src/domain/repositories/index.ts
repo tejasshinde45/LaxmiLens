@@ -7,3 +7,5 @@ export * from './LenderRepository';
 export * from './BorrowingRepository';
 export * from './RecurringRuleRepository';
 export * from './RecurringOccurrenceRepository';
+export * from './NotificationRepository';
+export * from './NotificationPreferenceRepository';

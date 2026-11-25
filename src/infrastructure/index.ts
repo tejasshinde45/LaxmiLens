@@ -10,6 +10,8 @@ export * from './database/local/repositories/DexieBorrowingRepository';
 export * from './database/local/repositories/DexieBudgetRepository';
 export * from './database/local/repositories/DexieRecurringRuleRepository';
 export * from './database/local/repositories/DexieRecurringOccurrenceRepository';
+export * from './database/local/repositories/DexieNotificationRepository';
+export * from './database/local/repositories/DexieNotificationPreferenceRepository';
 
 export * from './database/cloud/supabaseClient';
 export * from './database/cloud/mappers/TransactionMapper';

@@ -9,6 +9,8 @@ import {
   LocalBudgetRecord,
   LocalRecurringRuleRecord,
   LocalRecurringOccurrenceRecord,
+  LocalNotificationRecord,
+  LocalNotificationPreferenceRecord,
   LocalOutboxRecord,
   LocalSyncMetadataRecord,
   LocalLenderRecord,
@@ -25,6 +27,8 @@ export class LaxmiLensDB extends Dexie {
   public budgets!: Table<LocalBudgetRecord, string>;
   public recurringRules!: Table<LocalRecurringRuleRecord, string>;
   public recurringOccurrences!: Table<LocalRecurringOccurrenceRecord, string>;
+  public notifications!: Table<LocalNotificationRecord, string>;
+  public notificationPreferences!: Table<LocalNotificationPreferenceRecord, string>;
   public syncOutbox!: Table<LocalOutboxRecord, number>;
   public syncMetadata!: Table<LocalSyncMetadataRecord, string>;
   public lenders!: Table<LocalLenderRecord, string>;
@@ -235,6 +239,17 @@ export class LaxmiLensDB extends Dexie {
           'id, userId, recurringRuleId, occurrenceDate, status, transactionId, idempotencyKey, deletedAt, [userId+id], [userId+recurringRuleId], [userId+recurringRuleId+occurrenceDate], [userId+status]'
       })
       .upgrade(upgradeRecurringRulesToVersion7);
+
+    // Version 8: Notifications & Financial Alert Preferences
+    this.version(8)
+      .stores({
+        notifications:
+          'id, userId, category, severity, status, dedupeKey, triggerDate, deletedAt, [userId+id], [userId+dedupeKey], [userId+status], [userId+category], [userId+triggerDate]',
+        notificationPreferences: 'userId'
+      })
+      .upgrade(() => {
+        // Additive schema migration; existing financial data remains untouched.
+      });
   }
 }
 

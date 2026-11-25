@@ -19,6 +19,8 @@ export class DexieUnitOfWork implements UnitOfWork {
         this.database.budgets,
         this.database.recurringRules,
         this.database.recurringOccurrences,
+        this.database.notifications,
+        this.database.notificationPreferences,
         this.database.lenders,
         this.database.borrowings,
         this.database.borrowingRepayments,
