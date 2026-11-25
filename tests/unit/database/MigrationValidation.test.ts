@@ -13,6 +13,8 @@ describe('Database Migration & RLS Security Validation', () => {
     expect(migrationFiles).toContain('20260104000000_personal_borrowings.sql');
     expect(migrationFiles).toContain('20260105000000_budget_management.sql');
     expect(migrationFiles).toContain('20260106000000_category_identity_protection.sql');
+    expect(migrationFiles).toContain('20260107000000_recurring_transactions.sql');
+    expect(migrationFiles).toContain('20260108000000_notifications.sql');
 
     // Verify archived prototype migration is preserved
     const archiveDir = path.resolve(__dirname, '../../../supabase/archive');
@@ -324,6 +326,85 @@ describe('Database Migration & RLS Security Validation', () => {
     expect(migrationContent).toContain('Cannot change amount_paise on transaction');
     expect(migrationContent).toContain('IF NEW.currency IS DISTINCT FROM OLD.currency THEN');
     expect(migrationContent).toContain('Cannot change currency on transaction');
+  });
+
+  it('validates Phase 9 notifications & preferences SQL migration security, uniqueness, and monotonicity', () => {
+    const migrationPath = path.join(migrationsDir, '20260108000000_notifications.sql');
+    expect(fs.existsSync(migrationPath)).toBe(true);
+
+    const migrationContent = fs.readFileSync(migrationPath, 'utf-8');
+
+    // 1. Both tables and uniqueness constraints exist
+    expect(migrationContent).toContain('CREATE TABLE IF NOT EXISTS public.notifications');
+    expect(migrationContent).toContain('CREATE TABLE IF NOT EXISTS public.notification_preferences');
+    expect(migrationContent).toContain(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_user_dedupe_key\n    ON public.notifications(user_id, dedupe_key);'
+    );
+    expect(migrationContent).toContain('user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE');
+
+    // 2. Notification alerts must not have foreign keys to financial tables
+    expect(migrationContent).not.toContain('REFERENCES public.budgets');
+    expect(migrationContent).not.toContain('REFERENCES public.recurring_rules');
+    expect(migrationContent).not.toContain('REFERENCES public.recurring_occurrences');
+    expect(migrationContent).not.toContain('REFERENCES public.transactions');
+
+    // 3. Indexes & preference defaults
+    expect(migrationContent).toContain('idx_notifications_user_status');
+    expect(migrationContent).toContain('idx_notifications_user_category');
+    expect(migrationContent).toContain('idx_notifications_user_trigger_date');
+    expect(migrationContent).toContain('recurring_payment_enabled BOOLEAN NOT NULL DEFAULT true');
+    expect(migrationContent).toContain('budget_warning_enabled BOOLEAN NOT NULL DEFAULT true');
+    expect(migrationContent).toContain('budget_exceeded_enabled BOOLEAN NOT NULL DEFAULT true');
+    expect(migrationContent).toContain('upcoming_lead_days INTEGER NOT NULL DEFAULT 3');
+    expect(migrationContent).toContain('upcoming_lead_days >= 0 AND upcoming_lead_days <= 30');
+
+    // 4. RLS & least-privilege grants (no DELETE policies or anonymous access)
+    expect(migrationContent).toContain('ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY');
+    expect(migrationContent).toContain(
+      'ALTER TABLE public.notification_preferences ENABLE ROW LEVEL SECURITY'
+    );
+    expect(migrationContent).not.toContain('ON public.notifications FOR DELETE');
+    expect(migrationContent).not.toContain('ON public.notification_preferences FOR DELETE');
+    expect(migrationContent).toContain(
+      'REVOKE ALL ON TABLE public.notifications FROM anon, authenticated, PUBLIC;'
+    );
+    expect(migrationContent).toContain(
+      'GRANT SELECT, INSERT, UPDATE ON TABLE public.notifications TO authenticated;'
+    );
+    expect(migrationContent).toContain(
+      'REVOKE ALL ON TABLE public.notification_preferences FROM anon, authenticated, PUBLIC;'
+    );
+    expect(migrationContent).toContain(
+      'GRANT SELECT, INSERT, UPDATE ON TABLE public.notification_preferences TO authenticated;'
+    );
+
+    // 5. Hardened SECURITY DEFINER triggers, search_path & ownership
+    expect(migrationContent).toContain('CREATE OR REPLACE FUNCTION public.validate_notification_record()');
+    expect(migrationContent).toContain(
+      'CREATE OR REPLACE FUNCTION public.validate_notification_preference_record()'
+    );
+    expect(migrationContent).toContain('SET search_path = pg_catalog, public');
+    expect(migrationContent).toContain(
+      'ALTER FUNCTION public.validate_notification_record() OWNER TO postgres;'
+    );
+    expect(migrationContent).toContain(
+      'ALTER FUNCTION public.validate_notification_preference_record() OWNER TO postgres;'
+    );
+    expect(migrationContent).toContain(
+      'REVOKE ALL ON FUNCTION public.validate_notification_record() FROM PUBLIC, anon, authenticated;'
+    );
+    expect(migrationContent).toContain(
+      'REVOKE ALL ON FUNCTION public.validate_notification_preference_record() FROM PUBLIC, anon, authenticated;'
+    );
+
+    // 6. Identity immutability, Gregorian date, metadata integer validation & monotonic rules
+    expect(migrationContent).toContain("PERFORM public.assert_valid_gregorian_date(NEW.trigger_date, 'trigger_date');");
+    expect(migrationContent).toContain('NEW.dedupe_key IS DISTINCT FROM OLD.dedupe_key');
+    expect(migrationContent).toContain("OLD.category = 'budget_warning' AND NEW.category = 'budget_exceeded'");
+    expect(migrationContent).toContain('Severity downgrade prohibited on notification');
+    expect(migrationContent).toContain('dismissed status and timestamps are locked');
+    expect(migrationContent).toContain('read status cannot revert to unread and read_at is locked');
+    expect(migrationContent).toContain('IF NEW.version <> OLD.version + 1 THEN');
   });
 
   it('validates that all RAISE statements across all migrations have matching format placeholder and argument counts', () => {

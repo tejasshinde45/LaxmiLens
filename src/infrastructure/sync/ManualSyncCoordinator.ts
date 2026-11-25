@@ -9,6 +9,9 @@ import { BudgetReconciliationService } from './BudgetReconciliationService';
 import { RecurringRuleSyncDispatcher } from './dispatchers/RecurringRuleSyncDispatcher';
 import { RecurringOccurrenceSyncDispatcher } from './dispatchers/RecurringOccurrenceSyncDispatcher';
 import { RecurringReconciliationService } from './RecurringReconciliationService';
+import { NotificationSyncDispatcher } from './dispatchers/NotificationSyncDispatcher';
+import { NotificationPreferenceSyncDispatcher } from './dispatchers/NotificationPreferenceSyncDispatcher';
+import { NotificationReconciliationService } from './NotificationReconciliationService';
 import { OutboxManager } from './OutboxManager';
 import { AuthPort } from '@/application/ports/AuthPort';
 import { LocalOutboxRecord } from '../database/local/schema';
@@ -32,6 +35,8 @@ import { SupabaseBorrowingRepository } from '../database/cloud/repositories/Supa
 import { SupabaseBorrowingRepaymentRepository } from '../database/cloud/repositories/SupabaseBorrowingRepaymentRepository';
 import { SupabaseRecurringRuleRepository } from '../database/cloud/repositories/SupabaseRecurringRuleRepository';
 import { SupabaseRecurringOccurrenceRepository } from '../database/cloud/repositories/SupabaseRecurringOccurrenceRepository';
+import { SupabaseNotificationRepository } from '../database/cloud/repositories/SupabaseNotificationRepository';
+import { SupabaseNotificationPreferenceRepository } from '../database/cloud/repositories/SupabaseNotificationPreferenceRepository';
 import { CategoryMappingService } from './CategoryMappingService';
 import { defaultAuthAdapter } from '../auth/SupabaseAuthAdapter';
 
@@ -111,6 +116,19 @@ export interface UnifiedSyncResult {
     skippedCount: number;
     dependencyBlockedCount: number;
   };
+  notifications?: {
+    syncedCount: number;
+    failedCount: number;
+    skippedCount: number;
+    conflictCount: number;
+    pulledCount: number;
+  };
+  notification_preferences?: {
+    syncedCount: number;
+    failedCount: number;
+    skippedCount: number;
+    conflictCount: number;
+  };
 
   // Detailed errors
   errors: SyncErrorItem[];
@@ -158,7 +176,10 @@ export class ManualSyncCoordinator {
     private readonly budgetReconciler?: BudgetReconciliationService,
     private readonly recurringRuleDispatcher?: RecurringRuleSyncDispatcher,
     private readonly recurringOccurrenceDispatcher?: RecurringOccurrenceSyncDispatcher,
-    private readonly recurringReconciler?: RecurringReconciliationService
+    private readonly recurringReconciler?: RecurringReconciliationService,
+    private readonly notificationDispatcher?: NotificationSyncDispatcher,
+    private readonly notificationPreferenceDispatcher?: NotificationPreferenceSyncDispatcher,
+    private readonly notificationReconciler?: NotificationReconciliationService
   ) {}
 
   public isSyncRunning(): boolean {
@@ -181,6 +202,10 @@ export class ManualSyncCoordinator {
       if (entry.entity === 'budgets' && this.budgetDispatcher) return true;
       if (entry.entity === 'recurring_rules' && this.recurringRuleDispatcher) return true;
       if (entry.entity === 'recurring_occurrences' && this.recurringOccurrenceDispatcher) return true;
+      if (entry.entity === 'notifications' && this.notificationDispatcher) return true;
+      if (entry.entity === 'notification_preferences' && this.notificationPreferenceDispatcher) {
+        return true;
+      }
       if (entry.entity === 'lenders' && this.lenderDispatcher) return true;
       if (entry.entity === 'borrowings' && this.borrowingDispatcher) return true;
       if (entry.entity === 'borrowing_repayments' && this.borrowingRepaymentDispatcher) return true;
@@ -283,6 +308,19 @@ export class ManualSyncCoordinator {
           skippedCount: 0,
           dependencyBlockedCount: 0
         },
+        notifications: {
+          syncedCount: 0,
+          failedCount: 0,
+          skippedCount: 0,
+          conflictCount: 0,
+          pulledCount: 0
+        },
+        notification_preferences: {
+          syncedCount: 0,
+          failedCount: 0,
+          skippedCount: 0,
+          conflictCount: 0
+        },
         errors: []
       };
 
@@ -303,6 +341,8 @@ export class ManualSyncCoordinator {
       const borrowingInsertEntries: LocalOutboxRecord[] = [];
       const borrowingUpdateEntries: LocalOutboxRecord[] = [];
       const repaymentEntries: LocalOutboxRecord[] = [];
+      const notificationEntries: LocalOutboxRecord[] = [];
+      const notificationPreferenceEntries: LocalOutboxRecord[] = [];
       const unsupportedEntries: LocalOutboxRecord[] = [];
 
       for (const entry of pendingEntries) {
@@ -334,6 +374,13 @@ export class ManualSyncCoordinator {
           }
         } else if (entry.entity === 'borrowing_repayments' && this.borrowingRepaymentDispatcher) {
           repaymentEntries.push(entry);
+        } else if (entry.entity === 'notifications' && this.notificationDispatcher) {
+          notificationEntries.push(entry);
+        } else if (
+          entry.entity === 'notification_preferences' &&
+          this.notificationPreferenceDispatcher
+        ) {
+          notificationPreferenceEntries.push(entry);
         } else {
           unsupportedEntries.push(entry);
         }
@@ -352,6 +399,9 @@ export class ManualSyncCoordinator {
       const rulesWithFailedOccurrences = new Set<string>();
       const failedLenderIds = new Set<string>();
       const failedBorrowingIds = new Set<string>();
+      const failedNotificationIds = new Set<string>();
+      const failedNotificationDedupeKeys = new Set<string>();
+      let hasFailedPreference = false;
 
       // -----------------------------------------------------------------------
       // STAGE 1: ACCOUNTS
@@ -1129,6 +1179,85 @@ export class ManualSyncCoordinator {
       }
 
       // -----------------------------------------------------------------------
+      // STAGE 8A: NOTIFICATIONS (FIFO per notification ID & dedupe_key slot)
+      // Isolated from financial push stages so alert failures never block ledger sync.
+      // -----------------------------------------------------------------------
+      for (const entry of notificationEntries) {
+        const notificationId = entry.entityId;
+        const rawDedupe = entry.payload?.dedupe_key ?? entry.payload?.dedupeKey;
+        const dedupeKey =
+          typeof rawDedupe === 'string' && rawDedupe.trim().length > 0
+            ? rawDedupe.trim()
+            : null;
+
+        if (
+          failedNotificationIds.has(notificationId) ||
+          (dedupeKey !== null && failedNotificationDedupeKeys.has(dedupeKey))
+        ) {
+          result.skippedCount++;
+          result.notifications!.skippedCount++;
+          failedNotificationIds.add(notificationId);
+          continue;
+        }
+
+        result.totalProcessed++;
+        try {
+          await this.notificationDispatcher!.dispatch(entry);
+          result.syncedCount++;
+          result.notifications!.syncedCount++;
+        } catch (error) {
+          result.failedCount++;
+          result.notifications!.failedCount++;
+          failedNotificationIds.add(notificationId);
+          if (dedupeKey) {
+            failedNotificationDedupeKeys.add(dedupeKey);
+          }
+          if (error instanceof SyncConflictError) {
+            result.notifications!.conflictCount++;
+          }
+          result.errors.push({
+            entity: 'notifications',
+            entityId: notificationId,
+            outboxId: entry.id,
+            error: error instanceof Error ? error.message : String(error),
+            category: this.classifyError(error)
+          });
+        }
+      }
+
+      // -----------------------------------------------------------------------
+      // STAGE 8B: NOTIFICATION PREFERENCES (FIFO per user)
+      // -----------------------------------------------------------------------
+      for (const entry of notificationPreferenceEntries) {
+        if (hasFailedPreference) {
+          result.skippedCount++;
+          result.notification_preferences!.skippedCount++;
+          continue;
+        }
+
+        result.totalProcessed++;
+        try {
+          await this.notificationPreferenceDispatcher!.dispatch(entry);
+          result.syncedCount++;
+          result.notification_preferences!.syncedCount++;
+        } catch (error) {
+          result.failedCount++;
+          result.notification_preferences!.failedCount++;
+          hasFailedPreference = true;
+          if (error instanceof SyncConflictError) {
+            result.notification_preferences!.conflictCount++;
+          }
+          result.errors.push({
+            entity: 'notification_preferences',
+            entityId: entry.entityId,
+            outboxId: entry.id,
+            error: error instanceof Error ? error.message : String(error),
+            category: this.classifyError(error)
+          });
+        }
+      }
+
+      // -----------------------------------------------------------------------
       // STAGE 9: BUDGET CLOUD PULL & LOCAL RECONCILIATION
       // -----------------------------------------------------------------------
       if (this.budgetReconciler) {
@@ -1179,6 +1308,36 @@ export class ManualSyncCoordinator {
           result.recurring_rules!.failedCount++;
           result.errors.push({
             entity: 'recurring_rules',
+            entityId: 'reconcile',
+            error: error instanceof Error ? error.message : String(error),
+            category: this.classifyError(error)
+          });
+        }
+      }
+
+      // -----------------------------------------------------------------------
+      // STAGE 11: NOTIFICATIONS & PREFERENCES PULL RECONCILIATION
+      // -----------------------------------------------------------------------
+      if (this.notificationReconciler) {
+        try {
+          const notifPull = await this.notificationReconciler.pullAndReconcile(currentUser.id);
+          result.pulledCount += notifPull.pulledCount;
+          result.notifications!.pulledCount += notifPull.pulledCount;
+          result.notifications!.conflictCount += notifPull.conflictCount;
+
+          for (const conflict of notifPull.conflicts) {
+            result.errors.push({
+              entity: conflict.entity,
+              entityId: conflict.entityId,
+              error: conflict.reason,
+              category: 'conflict'
+            });
+          }
+        } catch (error) {
+          result.failedCount++;
+          result.notifications!.failedCount++;
+          result.errors.push({
+            entity: 'notifications',
             entityId: 'reconcile',
             error: error instanceof Error ? error.message : String(error),
             category: this.classifyError(error)
@@ -1317,6 +1476,18 @@ const defaultRecurringOccurrenceDispatcher = new RecurringOccurrenceSyncDispatch
   defaultAuthAdapter,
   defaultOutboxManager
 );
+const defaultSupabaseNotificationRepo = new SupabaseNotificationRepository();
+const defaultSupabaseNotificationPreferenceRepo = new SupabaseNotificationPreferenceRepository();
+const defaultNotificationDispatcher = new NotificationSyncDispatcher(
+  defaultSupabaseNotificationRepo,
+  defaultAuthAdapter,
+  defaultOutboxManager
+);
+const defaultNotificationPreferenceDispatcher = new NotificationPreferenceSyncDispatcher(
+  defaultSupabaseNotificationPreferenceRepo,
+  defaultAuthAdapter,
+  defaultOutboxManager
+);
 
 export const defaultManualSyncCoordinator = new ManualSyncCoordinator(
   defaultAccountDispatcher,
@@ -1330,5 +1501,8 @@ export const defaultManualSyncCoordinator = new ManualSyncCoordinator(
   defaultBudgetDispatcher,
   undefined,
   defaultRecurringRuleDispatcher,
-  defaultRecurringOccurrenceDispatcher
+  defaultRecurringOccurrenceDispatcher,
+  undefined,
+  defaultNotificationDispatcher,
+  defaultNotificationPreferenceDispatcher
 );

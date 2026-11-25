@@ -32,6 +32,9 @@ import { BudgetReconciliationService } from '@/infrastructure/sync/BudgetReconci
 import { RecurringRuleSyncDispatcher } from '@/infrastructure/sync/dispatchers/RecurringRuleSyncDispatcher';
 import { RecurringOccurrenceSyncDispatcher } from '@/infrastructure/sync/dispatchers/RecurringOccurrenceSyncDispatcher';
 import { RecurringReconciliationService } from '@/infrastructure/sync/RecurringReconciliationService';
+import { NotificationSyncDispatcher } from '@/infrastructure/sync/dispatchers/NotificationSyncDispatcher';
+import { NotificationPreferenceSyncDispatcher } from '@/infrastructure/sync/dispatchers/NotificationPreferenceSyncDispatcher';
+import { NotificationReconciliationService } from '@/infrastructure/sync/NotificationReconciliationService';
 import { CategoryMappingService } from '@/infrastructure/sync/CategoryMappingService';
 import {
   ISupabaseAccountRepository,
@@ -69,6 +72,14 @@ import {
   ISupabaseRecurringOccurrenceRepository,
   SupabaseRecurringOccurrenceRepository
 } from '../cloud/repositories/SupabaseRecurringOccurrenceRepository';
+import {
+  ISupabaseNotificationRepository,
+  SupabaseNotificationRepository
+} from '../cloud/repositories/SupabaseNotificationRepository';
+import {
+  ISupabaseNotificationPreferenceRepository,
+  SupabaseNotificationPreferenceRepository
+} from '../cloud/repositories/SupabaseNotificationPreferenceRepository';
 import {
   GetAccountsWithBalanceUseCase,
   CreateAccountUseCase,
@@ -226,7 +237,9 @@ export class DatabaseManager {
       undefined,
       supabaseRecurringRuleRepo,
       supabaseTransactionRepo
-    )
+    ),
+    private readonly supabaseNotificationRepo: ISupabaseNotificationRepository = new SupabaseNotificationRepository(),
+    private readonly supabaseNotificationPreferenceRepo: ISupabaseNotificationPreferenceRepository = new SupabaseNotificationPreferenceRepository()
   ) {}
 
   public getSessionGeneration(): number {
@@ -521,6 +534,25 @@ export class DatabaseManager {
       categoryMappingService
     );
 
+    const notificationDispatcher = new NotificationSyncDispatcher(
+      this.supabaseNotificationRepo,
+      this.authPort,
+      outboxManager
+    );
+
+    const notificationPreferenceDispatcher = new NotificationPreferenceSyncDispatcher(
+      this.supabaseNotificationPreferenceRepo,
+      this.authPort,
+      outboxManager
+    );
+
+    const notificationReconciler = new NotificationReconciliationService(
+      database,
+      this.supabaseNotificationRepo,
+      this.supabaseNotificationPreferenceRepo,
+      this.authPort
+    );
+
     const syncCoordinator = new ManualSyncCoordinator(
       accountDispatcher,
       transactionDispatcher,
@@ -534,7 +566,10 @@ export class DatabaseManager {
       budgetReconciler,
       recurringRuleDispatcher,
       recurringOccurrenceDispatcher,
-      recurringReconciler
+      recurringReconciler,
+      notificationDispatcher,
+      notificationPreferenceDispatcher,
+      notificationReconciler
     );
 
     const getAccountsUseCase = new GetAccountsWithBalanceUseCase(accountRepo, transactionRepo);

@@ -12,6 +12,13 @@ export * from './database/local/repositories/DexieRecurringRuleRepository';
 export * from './database/local/repositories/DexieRecurringOccurrenceRepository';
 export * from './database/local/repositories/DexieNotificationRepository';
 export * from './database/local/repositories/DexieNotificationPreferenceRepository';
+export * from './database/cloud/mappers/NotificationRowMapper';
+export * from './database/cloud/mappers/NotificationPreferenceRowMapper';
+export * from './database/cloud/repositories/SupabaseNotificationRepository';
+export * from './database/cloud/repositories/SupabaseNotificationPreferenceRepository';
+export * from './sync/dispatchers/NotificationSyncDispatcher';
+export * from './sync/dispatchers/NotificationPreferenceSyncDispatcher';
+export * from './sync/NotificationReconciliationService';
 
 export * from './database/cloud/supabaseClient';
 export * from './database/cloud/mappers/TransactionMapper';

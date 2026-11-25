@@ -42,6 +42,7 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         // Exclude sensitive financial data and cloud API endpoints from service worker caching
         navigateFallbackDenylist: [/^\/api\//, /^\/auth\//, /https:\/\/.*\.supabase\.co\/.*/]
       }
