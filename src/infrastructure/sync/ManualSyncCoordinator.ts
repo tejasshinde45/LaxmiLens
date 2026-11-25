@@ -6,6 +6,9 @@ import { LenderSyncDispatcher } from './dispatchers/LenderSyncDispatcher';
 import { BorrowingSyncDispatcher } from './dispatchers/BorrowingSyncDispatcher';
 import { BorrowingRepaymentSyncDispatcher } from './dispatchers/BorrowingRepaymentSyncDispatcher';
 import { BudgetReconciliationService } from './BudgetReconciliationService';
+import { RecurringRuleSyncDispatcher } from './dispatchers/RecurringRuleSyncDispatcher';
+import { RecurringOccurrenceSyncDispatcher } from './dispatchers/RecurringOccurrenceSyncDispatcher';
+import { RecurringReconciliationService } from './RecurringReconciliationService';
 import { OutboxManager } from './OutboxManager';
 import { AuthPort } from '@/application/ports/AuthPort';
 import { LocalOutboxRecord } from '../database/local/schema';
@@ -27,6 +30,8 @@ import { SupabaseBudgetRepository } from '../database/cloud/repositories/Supabas
 import { SupabaseLenderRepository } from '../database/cloud/repositories/SupabaseLenderRepository';
 import { SupabaseBorrowingRepository } from '../database/cloud/repositories/SupabaseBorrowingRepository';
 import { SupabaseBorrowingRepaymentRepository } from '../database/cloud/repositories/SupabaseBorrowingRepaymentRepository';
+import { SupabaseRecurringRuleRepository } from '../database/cloud/repositories/SupabaseRecurringRuleRepository';
+import { SupabaseRecurringOccurrenceRepository } from '../database/cloud/repositories/SupabaseRecurringOccurrenceRepository';
 import { CategoryMappingService } from './CategoryMappingService';
 import { defaultAuthAdapter } from '../auth/SupabaseAuthAdapter';
 
@@ -93,6 +98,19 @@ export interface UnifiedSyncResult {
     skippedCount: number;
     dependencyBlockedCount: number;
   };
+  recurring_rules?: {
+    syncedCount: number;
+    failedCount: number;
+    skippedCount: number;
+    dependencyBlockedCount: number;
+    categoryBlockedCount: number;
+  };
+  recurring_occurrences?: {
+    syncedCount: number;
+    failedCount: number;
+    skippedCount: number;
+    dependencyBlockedCount: number;
+  };
 
   // Detailed errors
   errors: SyncErrorItem[];
@@ -137,7 +155,10 @@ export class ManualSyncCoordinator {
     private readonly borrowingDispatcher?: BorrowingSyncDispatcher,
     private readonly borrowingRepaymentDispatcher?: BorrowingRepaymentSyncDispatcher,
     private readonly budgetDispatcher?: BudgetSyncDispatcher,
-    private readonly budgetReconciler?: BudgetReconciliationService
+    private readonly budgetReconciler?: BudgetReconciliationService,
+    private readonly recurringRuleDispatcher?: RecurringRuleSyncDispatcher,
+    private readonly recurringOccurrenceDispatcher?: RecurringOccurrenceSyncDispatcher,
+    private readonly recurringReconciler?: RecurringReconciliationService
   ) {}
 
   public isSyncRunning(): boolean {
@@ -158,6 +179,8 @@ export class ManualSyncCoordinator {
       if (entry.entity === 'accounts' || entry.entity === 'transactions') return true;
       if (entry.entity === 'categories' && this.categoryDispatcher) return true;
       if (entry.entity === 'budgets' && this.budgetDispatcher) return true;
+      if (entry.entity === 'recurring_rules' && this.recurringRuleDispatcher) return true;
+      if (entry.entity === 'recurring_occurrences' && this.recurringOccurrenceDispatcher) return true;
       if (entry.entity === 'lenders' && this.lenderDispatcher) return true;
       if (entry.entity === 'borrowings' && this.borrowingDispatcher) return true;
       if (entry.entity === 'borrowing_repayments' && this.borrowingRepaymentDispatcher) return true;
@@ -247,6 +270,19 @@ export class ManualSyncCoordinator {
           skippedCount: 0,
           dependencyBlockedCount: 0
         },
+        recurring_rules: {
+          syncedCount: 0,
+          failedCount: 0,
+          skippedCount: 0,
+          dependencyBlockedCount: 0,
+          categoryBlockedCount: 0
+        },
+        recurring_occurrences: {
+          syncedCount: 0,
+          failedCount: 0,
+          skippedCount: 0,
+          dependencyBlockedCount: 0
+        },
         errors: []
       };
 
@@ -259,6 +295,8 @@ export class ManualSyncCoordinator {
       const categoryEntries: LocalOutboxRecord[] = [];
       const budgetEntries: LocalOutboxRecord[] = [];
       const transactionEntries: LocalOutboxRecord[] = [];
+      const recurringRuleEntries: LocalOutboxRecord[] = [];
+      const recurringOccurrenceEntries: LocalOutboxRecord[] = [];
       const lenderEntries: LocalOutboxRecord[] = [];
       const borrowingInsertEntries: LocalOutboxRecord[] = [];
       const borrowingUpdateEntries: LocalOutboxRecord[] = [];
@@ -274,6 +312,10 @@ export class ManualSyncCoordinator {
           budgetEntries.push(entry);
         } else if (entry.entity === 'transactions') {
           transactionEntries.push(entry);
+        } else if (entry.entity === 'recurring_rules' && this.recurringRuleDispatcher) {
+          recurringRuleEntries.push(entry);
+        } else if (entry.entity === 'recurring_occurrences' && this.recurringOccurrenceDispatcher) {
+          recurringOccurrenceEntries.push(entry);
         } else if (entry.entity === 'lenders' && this.lenderDispatcher) {
           lenderEntries.push(entry);
         } else if (entry.entity === 'borrowings' && this.borrowingDispatcher) {
@@ -297,6 +339,8 @@ export class ManualSyncCoordinator {
       const failedBudgetIds = new Set<string>();
       const failedBudgetSlots = new Set<string>();
       const failedTransactionIds = new Set<string>();
+      const failedRecurringRuleIds = new Set<string>();
+      const failedRecurringOccurrenceIds = new Set<string>();
       const failedLenderIds = new Set<string>();
       const failedBorrowingIds = new Set<string>();
 
@@ -547,6 +591,130 @@ export class ManualSyncCoordinator {
             outboxId: entry.id,
             error: errorMsg,
             category
+          });
+        }
+      }
+
+      // -----------------------------------------------------------------------
+      // STAGE 3B: RECURRING RULES (Accounts + Categories -> Recurring Rules)
+      // -----------------------------------------------------------------------
+      for (const entry of recurringRuleEntries) {
+        const ruleId = entry.entityId;
+        if (failedRecurringRuleIds.has(ruleId)) {
+          result.skippedCount++;
+          result.recurring_rules!.skippedCount++;
+          continue;
+        }
+
+        const accId = entry.payload.account_id ?? entry.payload.accountId;
+        if (accId && failedAccountIds.has(String(accId))) {
+          result.failedCount++;
+          result.recurring_rules!.failedCount++;
+          result.recurring_rules!.dependencyBlockedCount++;
+          failedRecurringRuleIds.add(ruleId);
+          result.errors.push({
+            entity: 'recurring_rules',
+            entityId: ruleId,
+            outboxId: entry.id,
+            error: `Cannot sync recurring rule '${ruleId}': referenced account '${accId}' failed synchronization.`,
+            category: 'dependency'
+          });
+          continue;
+        }
+
+        const catId = entry.payload.category_id ?? entry.payload.categoryId;
+        if (catId && failedCategoryIds.has(String(catId))) {
+          result.failedCount++;
+          result.recurring_rules!.failedCount++;
+          result.recurring_rules!.categoryBlockedCount++;
+          failedRecurringRuleIds.add(ruleId);
+          result.errors.push({
+            entity: 'recurring_rules',
+            entityId: ruleId,
+            outboxId: entry.id,
+            error: `Cannot sync recurring rule '${ruleId}': referenced category '${catId}' failed synchronization.`,
+            category: 'category'
+          });
+          continue;
+        }
+
+        result.totalProcessed++;
+        try {
+          await this.recurringRuleDispatcher!.dispatch(entry);
+          result.syncedCount++;
+          result.recurring_rules!.syncedCount++;
+        } catch (error) {
+          result.failedCount++;
+          result.recurring_rules!.failedCount++;
+          failedRecurringRuleIds.add(ruleId);
+          result.errors.push({
+            entity: 'recurring_rules',
+            entityId: ruleId,
+            outboxId: entry.id,
+            error: error instanceof Error ? error.message : String(error),
+            category: this.classifyError(error)
+          });
+        }
+      }
+
+      // -----------------------------------------------------------------------
+      // STAGE 3C: RECURRING OCCURRENCES (Recurring Rules + Transactions -> Occurrences)
+      // -----------------------------------------------------------------------
+      for (const entry of recurringOccurrenceEntries) {
+        const occId = entry.entityId;
+        if (failedRecurringOccurrenceIds.has(occId)) {
+          result.skippedCount++;
+          result.recurring_occurrences!.skippedCount++;
+          continue;
+        }
+
+        const ruleId = String(entry.payload.recurring_rule_id ?? entry.payload.recurringRuleId ?? '');
+        if (ruleId && failedRecurringRuleIds.has(ruleId)) {
+          result.failedCount++;
+          result.recurring_occurrences!.failedCount++;
+          result.recurring_occurrences!.dependencyBlockedCount++;
+          failedRecurringOccurrenceIds.add(occId);
+          result.errors.push({
+            entity: 'recurring_occurrences',
+            entityId: occId,
+            outboxId: entry.id,
+            error: `Cannot sync occurrence '${occId}': recurring schedule '${ruleId}' failed synchronization.`,
+            category: 'dependency'
+          });
+          continue;
+        }
+
+        const txId = entry.payload.transaction_id ?? entry.payload.transactionId;
+        if (txId && failedTransactionIds.has(String(txId))) {
+          result.failedCount++;
+          result.recurring_occurrences!.failedCount++;
+          result.recurring_occurrences!.dependencyBlockedCount++;
+          failedRecurringOccurrenceIds.add(occId);
+          result.errors.push({
+            entity: 'recurring_occurrences',
+            entityId: occId,
+            outboxId: entry.id,
+            error: `Cannot sync occurrence '${occId}': generated transaction '${txId}' failed synchronization.`,
+            category: 'dependency'
+          });
+          continue;
+        }
+
+        result.totalProcessed++;
+        try {
+          await this.recurringOccurrenceDispatcher!.dispatch(entry);
+          result.syncedCount++;
+          result.recurring_occurrences!.syncedCount++;
+        } catch (error) {
+          result.failedCount++;
+          result.recurring_occurrences!.failedCount++;
+          failedRecurringOccurrenceIds.add(occId);
+          result.errors.push({
+            entity: 'recurring_occurrences',
+            entityId: occId,
+            outboxId: entry.id,
+            error: error instanceof Error ? error.message : String(error),
+            category: this.classifyError(error)
           });
         }
       }
@@ -941,6 +1109,33 @@ export class ManualSyncCoordinator {
         }
       }
 
+      // -----------------------------------------------------------------------
+      // STAGE 10: RECURRING SCHEDULES & OCCURRENCES PULL RECONCILIATION
+      // -----------------------------------------------------------------------
+      if (this.recurringReconciler) {
+        try {
+          const recurringPull = await this.recurringReconciler.pullAndReconcile(currentUser.id);
+          result.pulledCount += recurringPull.pulledCount;
+          for (const conflict of recurringPull.conflicts) {
+            result.errors.push({
+              entity: conflict.entity,
+              entityId: conflict.entityId,
+              error: conflict.reason,
+              category: 'conflict'
+            });
+          }
+        } catch (error) {
+          result.failedCount++;
+          result.recurring_rules!.failedCount++;
+          result.errors.push({
+            entity: 'recurring_rules',
+            entityId: 'reconcile',
+            error: error instanceof Error ? error.message : String(error),
+            category: this.classifyError(error)
+          });
+        }
+      }
+
       // 7. Update remaining still pending count scoped to authenticated user
       result.stillPendingCount = await this.outboxManager.getPendingCount(currentUser.id);
 
@@ -1051,6 +1246,28 @@ const defaultBorrowingRepaymentDispatcher = new BorrowingRepaymentSyncDispatcher
   defaultOutboxManager
 );
 
+const defaultSupabaseRecurringRuleRepo = new SupabaseRecurringRuleRepository(
+  undefined,
+  defaultSupabaseAccountRepo,
+  defaultSupabaseCategoryRepo
+);
+const defaultSupabaseRecurringOccurrenceRepo = new SupabaseRecurringOccurrenceRepository(
+  undefined,
+  defaultSupabaseRecurringRuleRepo,
+  defaultSupabaseTransactionRepo
+);
+const defaultRecurringRuleDispatcher = new RecurringRuleSyncDispatcher(
+  defaultSupabaseRecurringRuleRepo,
+  defaultAuthAdapter,
+  defaultOutboxManager,
+  defaultCategoryMappingService
+);
+const defaultRecurringOccurrenceDispatcher = new RecurringOccurrenceSyncDispatcher(
+  defaultSupabaseRecurringOccurrenceRepo,
+  defaultAuthAdapter,
+  defaultOutboxManager
+);
+
 export const defaultManualSyncCoordinator = new ManualSyncCoordinator(
   defaultAccountDispatcher,
   defaultTransactionDispatcher,
@@ -1060,5 +1277,8 @@ export const defaultManualSyncCoordinator = new ManualSyncCoordinator(
   defaultLenderDispatcher,
   defaultBorrowingDispatcher,
   defaultBorrowingRepaymentDispatcher,
-  defaultBudgetDispatcher
+  defaultBudgetDispatcher,
+  undefined,
+  defaultRecurringRuleDispatcher,
+  defaultRecurringOccurrenceDispatcher
 );

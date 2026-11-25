@@ -260,6 +260,26 @@ describe('Database Migration & RLS Security Validation', () => {
     );
   });
 
+  it('validates Phase 8 recurring transactions & occurrences SQL migration security and idempotency', () => {
+    const migrationPath = path.join(migrationsDir, '20260107000000_recurring_transactions.sql');
+    expect(fs.existsSync(migrationPath)).toBe(true);
+
+    const migrationContent = fs.readFileSync(migrationPath, 'utf-8');
+
+    expect(migrationContent).toContain('CREATE TABLE IF NOT EXISTS public.recurring_rules');
+    expect(migrationContent).toContain('CREATE TABLE IF NOT EXISTS public.recurring_occurrences');
+    expect(migrationContent).toContain('CREATE UNIQUE INDEX IF NOT EXISTS idx_recurring_occurrences_active_slot');
+    expect(migrationContent).toContain('CREATE UNIQUE INDEX IF NOT EXISTS idx_recurring_occurrences_active_transaction');
+    expect(migrationContent).toContain('ALTER TABLE public.recurring_rules ENABLE ROW LEVEL SECURITY');
+    expect(migrationContent).toContain('ALTER TABLE public.recurring_occurrences ENABLE ROW LEVEL SECURITY');
+    expect(migrationContent).toContain('GRANT SELECT, INSERT, UPDATE ON TABLE public.recurring_rules TO authenticated');
+    expect(migrationContent).toContain('GRANT SELECT, INSERT, UPDATE ON TABLE public.recurring_occurrences TO authenticated');
+    expect(migrationContent).toContain('ALTER FUNCTION public.validate_recurring_rule_record() OWNER TO postgres;');
+    expect(migrationContent).toContain('ALTER FUNCTION public.validate_recurring_occurrence_record() OWNER TO postgres;');
+    expect(migrationContent).toContain('SET search_path = pg_catalog, public');
+    expect(migrationContent).toContain('confirmed occurrence cannot change status');
+  });
+
   it('validates that all RAISE statements across all migrations have matching format placeholder and argument counts', () => {
     for (const file of migrationFiles) {
       const content = fs.readFileSync(path.join(migrationsDir, file), 'utf-8');

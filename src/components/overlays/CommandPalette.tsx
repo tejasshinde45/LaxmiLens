@@ -12,7 +12,8 @@ import {
   Settings,
   PlusCircle,
   X,
-  HandCoins
+  HandCoins,
+  Repeat
 } from 'lucide-react';
 import { Dialog, DialogPortal, DialogOverlay } from '@/components/ui/Dialog';
 import { cn } from '@/utils/cn';
@@ -108,6 +109,17 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         action: () => {
           onClose();
           navigate('/budgets');
+        }
+      },
+      {
+        id: 'nav-recurring',
+        title: 'Recurring & Reminders',
+        description: 'Manage recurring income/expenses and confirm due payments',
+        category: 'Navigation',
+        icon: Repeat,
+        action: () => {
+          onClose();
+          navigate('/recurring');
         }
       },
       {

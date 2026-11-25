@@ -14,6 +14,8 @@ import { DexieProfileRepository } from './repositories/DexieProfileRepository';
 import { DexieLenderRepository } from './repositories/DexieLenderRepository';
 import { DexieBorrowingRepository } from './repositories/DexieBorrowingRepository';
 import { DexieBudgetRepository } from './repositories/DexieBudgetRepository';
+import { DexieRecurringRuleRepository } from './repositories/DexieRecurringRuleRepository';
+import { DexieRecurringOccurrenceRepository } from './repositories/DexieRecurringOccurrenceRepository';
 import { OutboxManager } from '@/infrastructure/sync/OutboxManager';
 import { DexieUnitOfWork } from './DexieUnitOfWork';
 import { ManualSyncCoordinator } from '@/infrastructure/sync/ManualSyncCoordinator';
@@ -25,6 +27,9 @@ import { LenderSyncDispatcher } from '@/infrastructure/sync/dispatchers/LenderSy
 import { BorrowingSyncDispatcher } from '@/infrastructure/sync/dispatchers/BorrowingSyncDispatcher';
 import { BorrowingRepaymentSyncDispatcher } from '@/infrastructure/sync/dispatchers/BorrowingRepaymentSyncDispatcher';
 import { BudgetReconciliationService } from '@/infrastructure/sync/BudgetReconciliationService';
+import { RecurringRuleSyncDispatcher } from '@/infrastructure/sync/dispatchers/RecurringRuleSyncDispatcher';
+import { RecurringOccurrenceSyncDispatcher } from '@/infrastructure/sync/dispatchers/RecurringOccurrenceSyncDispatcher';
+import { RecurringReconciliationService } from '@/infrastructure/sync/RecurringReconciliationService';
 import { CategoryMappingService } from '@/infrastructure/sync/CategoryMappingService';
 import {
   ISupabaseAccountRepository,
@@ -55,6 +60,14 @@ import {
   SupabaseBudgetRepository
 } from '../cloud/repositories/SupabaseBudgetRepository';
 import {
+  ISupabaseRecurringRuleRepository,
+  SupabaseRecurringRuleRepository
+} from '../cloud/repositories/SupabaseRecurringRuleRepository';
+import {
+  ISupabaseRecurringOccurrenceRepository,
+  SupabaseRecurringOccurrenceRepository
+} from '../cloud/repositories/SupabaseRecurringOccurrenceRepository';
+import {
   GetAccountsWithBalanceUseCase,
   CreateAccountUseCase,
   UpdateAccountUseCase,
@@ -73,7 +86,17 @@ import {
   UpdateBudgetUseCase,
   DeleteBudgetUseCase,
   GetBudgetsOverviewUseCase,
-  CheckBudgetUseCase
+  CheckBudgetUseCase,
+  CreateRecurringRuleUseCase,
+  UpdateRecurringRuleUseCase,
+  PauseRecurringRuleUseCase,
+  ResumeRecurringRuleUseCase,
+  DeleteRecurringRuleUseCase,
+  ConfirmRecurringOccurrenceUseCase,
+  SkipRecurringOccurrenceUseCase,
+  SnoozeRecurringOccurrenceUseCase,
+  DismissRecurringOccurrenceUseCase,
+  GetRecurringOverviewUseCase
 } from '@/application';
 
 export const DATABASE_PREFIX = 'LaxmiLens_LocalDB';
@@ -94,6 +117,8 @@ export interface UserRepositories {
   lenderRepo: DexieLenderRepository;
   borrowingRepo: DexieBorrowingRepository;
   budgetRepo: DexieBudgetRepository;
+  recurringRuleRepo: DexieRecurringRuleRepository;
+  recurringOccurrenceRepo: DexieRecurringOccurrenceRepository;
   outboxManager: OutboxManager;
   unitOfWork: DexieUnitOfWork;
   syncCoordinator: ManualSyncCoordinator;
@@ -124,6 +149,18 @@ export interface UserRepositories {
   deleteBudgetUseCase: DeleteBudgetUseCase;
   getBudgetsOverviewUseCase: GetBudgetsOverviewUseCase;
   checkBudgetUseCase: CheckBudgetUseCase;
+
+  // Pre-wired recurring transaction & reminder use cases
+  createRecurringRuleUseCase: CreateRecurringRuleUseCase;
+  updateRecurringRuleUseCase: UpdateRecurringRuleUseCase;
+  pauseRecurringRuleUseCase: PauseRecurringRuleUseCase;
+  resumeRecurringRuleUseCase: ResumeRecurringRuleUseCase;
+  deleteRecurringRuleUseCase: DeleteRecurringRuleUseCase;
+  confirmRecurringOccurrenceUseCase: ConfirmRecurringOccurrenceUseCase;
+  skipRecurringOccurrenceUseCase: SkipRecurringOccurrenceUseCase;
+  snoozeRecurringOccurrenceUseCase: SnoozeRecurringOccurrenceUseCase;
+  dismissRecurringOccurrenceUseCase: DismissRecurringOccurrenceUseCase;
+  getRecurringOverviewUseCase: GetRecurringOverviewUseCase;
 }
 
 export class DatabaseManager {
@@ -161,6 +198,16 @@ export class DatabaseManager {
     private readonly supabaseBudgetRepo: ISupabaseBudgetRepository = new SupabaseBudgetRepository(
       undefined,
       supabaseCategoryRepo
+    ),
+    private readonly supabaseRecurringRuleRepo: ISupabaseRecurringRuleRepository = new SupabaseRecurringRuleRepository(
+      undefined,
+      supabaseAccountRepo,
+      supabaseCategoryRepo
+    ),
+    private readonly supabaseRecurringOccurrenceRepo: ISupabaseRecurringOccurrenceRepository = new SupabaseRecurringOccurrenceRepository(
+      undefined,
+      supabaseRecurringRuleRepo,
+      supabaseTransactionRepo
     )
   ) {}
 
@@ -435,6 +482,27 @@ export class DatabaseManager {
       categoryMappingService
     );
 
+    const recurringRuleDispatcher = new RecurringRuleSyncDispatcher(
+      this.supabaseRecurringRuleRepo,
+      this.authPort,
+      outboxManager,
+      categoryMappingService
+    );
+
+    const recurringOccurrenceDispatcher = new RecurringOccurrenceSyncDispatcher(
+      this.supabaseRecurringOccurrenceRepo,
+      this.authPort,
+      outboxManager
+    );
+
+    const recurringReconciler = new RecurringReconciliationService(
+      database,
+      this.supabaseRecurringRuleRepo,
+      this.supabaseRecurringOccurrenceRepo,
+      this.authPort,
+      categoryMappingService
+    );
+
     const syncCoordinator = new ManualSyncCoordinator(
       accountDispatcher,
       transactionDispatcher,
@@ -445,7 +513,10 @@ export class DatabaseManager {
       borrowingDispatcher,
       borrowingRepaymentDispatcher,
       budgetDispatcher,
-      budgetReconciler
+      budgetReconciler,
+      recurringRuleDispatcher,
+      recurringOccurrenceDispatcher,
+      recurringReconciler
     );
 
     const getAccountsUseCase = new GetAccountsWithBalanceUseCase(accountRepo, transactionRepo);
@@ -484,6 +555,8 @@ export class DatabaseManager {
     const lenderRepo = new DexieLenderRepository(database);
     const borrowingRepo = new DexieBorrowingRepository(database);
     const budgetRepo = new DexieBudgetRepository(database);
+    const recurringRuleRepo = new DexieRecurringRuleRepository(database);
+    const recurringOccurrenceRepo = new DexieRecurringOccurrenceRepository(database);
 
     const ensureBorrowingsAccountUseCase = new EnsurePersonalBorrowingsAccountUseCase(
       accountRepo,
@@ -547,6 +620,71 @@ export class DatabaseManager {
       transactionRepo
     );
 
+    const createRecurringRuleUseCase = new CreateRecurringRuleUseCase(
+      recurringRuleRepo,
+      recurringOccurrenceRepo,
+      accountRepo,
+      categoryRepo,
+      outboxManager,
+      unitOfWork
+    );
+    const updateRecurringRuleUseCase = new UpdateRecurringRuleUseCase(
+      recurringRuleRepo,
+      recurringOccurrenceRepo,
+      accountRepo,
+      categoryRepo,
+      outboxManager,
+      unitOfWork
+    );
+    const pauseRecurringRuleUseCase = new PauseRecurringRuleUseCase(
+      recurringRuleRepo,
+      outboxManager,
+      unitOfWork
+    );
+    const resumeRecurringRuleUseCase = new ResumeRecurringRuleUseCase(
+      recurringRuleRepo,
+      recurringOccurrenceRepo,
+      outboxManager,
+      unitOfWork
+    );
+    const deleteRecurringRuleUseCase = new DeleteRecurringRuleUseCase(
+      recurringRuleRepo,
+      outboxManager,
+      unitOfWork
+    );
+    const confirmRecurringOccurrenceUseCase = new ConfirmRecurringOccurrenceUseCase(
+      recurringRuleRepo,
+      recurringOccurrenceRepo,
+      transactionRepo,
+      createTransactionUseCase,
+      outboxManager,
+      unitOfWork
+    );
+    const skipRecurringOccurrenceUseCase = new SkipRecurringOccurrenceUseCase(
+      recurringRuleRepo,
+      recurringOccurrenceRepo,
+      outboxManager,
+      unitOfWork
+    );
+    const snoozeRecurringOccurrenceUseCase = new SnoozeRecurringOccurrenceUseCase(
+      recurringRuleRepo,
+      recurringOccurrenceRepo,
+      outboxManager,
+      unitOfWork
+    );
+    const dismissRecurringOccurrenceUseCase = new DismissRecurringOccurrenceUseCase(
+      recurringRuleRepo,
+      recurringOccurrenceRepo,
+      outboxManager,
+      unitOfWork
+    );
+    const getRecurringOverviewUseCase = new GetRecurringOverviewUseCase(
+      recurringRuleRepo,
+      recurringOccurrenceRepo,
+      accountRepo,
+      categoryRepo
+    );
+
     this.activeRepositories = {
       userId,
       generation,
@@ -558,6 +696,8 @@ export class DatabaseManager {
       lenderRepo,
       borrowingRepo,
       budgetRepo,
+      recurringRuleRepo,
+      recurringOccurrenceRepo,
       outboxManager,
       unitOfWork,
       syncCoordinator,
@@ -579,7 +719,17 @@ export class DatabaseManager {
       updateBudgetUseCase,
       deleteBudgetUseCase,
       getBudgetsOverviewUseCase,
-      checkBudgetUseCase
+      checkBudgetUseCase,
+      createRecurringRuleUseCase,
+      updateRecurringRuleUseCase,
+      pauseRecurringRuleUseCase,
+      resumeRecurringRuleUseCase,
+      deleteRecurringRuleUseCase,
+      confirmRecurringOccurrenceUseCase,
+      skipRecurringOccurrenceUseCase,
+      snoozeRecurringOccurrenceUseCase,
+      dismissRecurringOccurrenceUseCase,
+      getRecurringOverviewUseCase
     };
 
     return this.activeRepositories;

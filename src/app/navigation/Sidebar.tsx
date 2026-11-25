@@ -10,7 +10,8 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Sparkles,
-  HandCoins
+  HandCoins,
+  Repeat
 } from 'lucide-react';
 import { NavigationItem } from './NavigationItem';
 import { IconButton } from '@/components/ui/IconButton';
@@ -38,6 +39,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   const manageItems = [
+    { label: 'Recurring', to: '/recurring', icon: Repeat },
     { label: 'Calendar', to: '/calendar', icon: CalendarDays },
     { label: 'Reports', to: '/reports', icon: FileText }
   ];

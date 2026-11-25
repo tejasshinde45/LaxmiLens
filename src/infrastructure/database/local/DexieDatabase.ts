@@ -8,12 +8,14 @@ import {
   LocalCategoryRecord,
   LocalBudgetRecord,
   LocalRecurringRuleRecord,
+  LocalRecurringOccurrenceRecord,
   LocalOutboxRecord,
   LocalSyncMetadataRecord,
   LocalLenderRecord,
   LocalBorrowingRecord,
   LocalBorrowingRepaymentRecord
 } from './schema';
+import { normalizeToLocalDateString } from '@/domain/services/RecurrenceScheduleService';
 
 export class LaxmiLensDB extends Dexie {
   public profiles!: Table<LocalProfileRecord, string>;
@@ -22,6 +24,7 @@ export class LaxmiLensDB extends Dexie {
   public categories!: Table<LocalCategoryRecord, string>;
   public budgets!: Table<LocalBudgetRecord, string>;
   public recurringRules!: Table<LocalRecurringRuleRecord, string>;
+  public recurringOccurrences!: Table<LocalRecurringOccurrenceRecord, string>;
   public syncOutbox!: Table<LocalOutboxRecord, number>;
   public syncMetadata!: Table<LocalSyncMetadataRecord, string>;
   public lenders!: Table<LocalLenderRecord, string>;
@@ -222,6 +225,16 @@ export class LaxmiLensDB extends Dexie {
           'id, userId, categoryId, period, version, createdAt, [userId+id], [userId+period], [userId+categoryId+period]'
       })
       .upgrade(upgradeBudgetsToVersion6);
+
+    // Version 7: Recurring Transactions & Payment Reminders
+    this.version(7)
+      .stores({
+        recurringRules:
+          'id, userId, status, nextDueDate, accountId, categoryId, deletedAt, version, [userId+id], [userId+status], [userId+nextDueDate]',
+        recurringOccurrences:
+          'id, userId, recurringRuleId, occurrenceDate, status, transactionId, idempotencyKey, deletedAt, [userId+id], [userId+recurringRuleId], [userId+recurringRuleId+occurrenceDate], [userId+status]'
+      })
+      .upgrade(upgradeRecurringRulesToVersion7);
   }
 }
 
@@ -331,6 +344,151 @@ export async function upgradeBudgetsToVersion6(tx: any): Promise<void> {
 
       // 6c. Non-empty malformed or sentinel budget userId (e.g. 'local-user', nil-UUID)
       b.userId = 'quarantine-malformed-ownership';
+    });
+}
+
+/**
+ * Dexie Version 7 migration handler for recurringRules:
+ * Upgrades legacy recurring rules to the user-scoped Phase 8 schedule model cleanly without
+ * deleting existing records. Quarantines records with missing/invalid/conflicting ownership
+ * or invalid amounts/dates/types fail-closed.
+ */
+export async function upgradeRecurringRulesToVersion7(tx: any): Promise<void> {
+  const accountMap = new Map<string, any>();
+  const categoryMap = new Map<string, any>();
+
+  try {
+    const accounts = await tx.table('accounts').toArray();
+    for (const acc of accounts) {
+      if (acc && acc.id) accountMap.set(acc.id, acc);
+    }
+  } catch {
+    // Proceed fail-closed when accounts table unavailable
+  }
+
+  try {
+    const categories = await tx.table('categories').toArray();
+    for (const cat of categories) {
+      if (cat && cat.id) categoryMap.set(cat.id, cat);
+    }
+  } catch {
+    // Proceed fail-closed when categories table unavailable
+  }
+
+  await tx
+    .table('recurringRules')
+    .toCollection()
+    .modify((r: any) => {
+      // 1. Normalize amountPaise without fabricating 0
+      const rawAmount = r.amountPaise ?? r.amountInPaise;
+      const isValidAmount =
+        typeof rawAmount === 'number' && Number.isSafeInteger(rawAmount) && rawAmount > 0;
+      if (isValidAmount) {
+        r.amountPaise = rawAmount;
+        delete r.amountInPaise;
+      }
+
+      // 2. Normalize title & status & confirmation policy
+      if (!r.title && typeof r.name === 'string' && r.name.trim().length > 0) {
+        r.title = r.name.trim();
+      }
+      if (!r.status) {
+        r.status = r.isActive === false ? 'paused' : 'active';
+      }
+      r.requiresUserConfirmation = r.requiresUserConfirmation ?? true;
+      r.deletedAt = r.deletedAt ?? null;
+      if (!r.createdAt) r.createdAt = new Date().toISOString();
+      if (!r.updatedAt) r.updatedAt = r.createdAt;
+      if (typeof r.version !== 'number' || !Number.isSafeInteger(r.version) || r.version < 1) {
+        r.version = 1;
+      }
+
+      // 3. Normalize local calendar dates safely
+      let datesValid = true;
+      try {
+        if (r.startDate) {
+          r.startDate = normalizeToLocalDateString(r.startDate);
+        } else {
+          datesValid = false;
+        }
+        if (r.nextDueDate) {
+          r.nextDueDate = normalizeToLocalDateString(r.nextDueDate);
+        } else {
+          datesValid = false;
+        }
+        if (r.endDate) {
+          r.endDate = normalizeToLocalDateString(r.endDate);
+        }
+        if (r.lastGeneratedDate) {
+          r.lastGeneratedDate = normalizeToLocalDateString(r.lastGeneratedDate);
+        }
+        if (datesValid && !r.anchorDayOfMonth) {
+          r.anchorDayOfMonth = Number(r.startDate.split('-')[2]);
+        }
+      } catch {
+        datesValid = false;
+      }
+
+      // 4. Preserve already quarantined records idempotently
+      if (
+        typeof r.userId === 'string' &&
+        (r.userId.startsWith('quarantine-') || r.userId === 'ambiguous-unassigned')
+      ) {
+        return;
+      }
+
+      // 5. Reject invalid financial/date/type data fail-closed
+      if (!isValidAmount || !datesValid || (r.type !== 'income' && r.type !== 'expense')) {
+        r.userId = 'quarantine-invalid-data';
+        return;
+      }
+
+      // 6. Verify referenced account (and optional category) ownership
+      const account =
+        typeof r.accountId === 'string' && r.accountId.trim() !== ''
+          ? accountMap.get(r.accountId)
+          : undefined;
+      const rawAccountUser =
+        account && typeof account.userId === 'string' ? account.userId.trim() : '';
+      const validAccountUser =
+        isValidUuid(rawAccountUser) && rawAccountUser.toLowerCase() !== NIL_UUID;
+
+      if (!account || !validAccountUser) {
+        r.userId = 'quarantine-unresolved-ownership';
+        return;
+      }
+
+      if (typeof r.categoryId === 'string' && r.categoryId.trim() !== '') {
+        const category = categoryMap.get(r.categoryId);
+        const rawCatUser =
+          category && typeof category.userId === 'string' ? category.userId.trim() : '';
+        const validCatUser = isValidUuid(rawCatUser) && rawCatUser.toLowerCase() !== NIL_UUID;
+        if (!category || !validCatUser) {
+          r.userId = 'quarantine-unresolved-ownership';
+          return;
+        }
+        if (rawCatUser.toLowerCase() !== rawAccountUser.toLowerCase()) {
+          r.userId = 'quarantine-conflicting-ownership';
+          return;
+        }
+      }
+
+      const rawRuleUser = typeof r.userId === 'string' ? r.userId.trim() : '';
+      if (rawRuleUser === '') {
+        r.userId = rawAccountUser;
+        return;
+      }
+
+      const validRuleUser = isValidUuid(rawRuleUser) && rawRuleUser.toLowerCase() !== NIL_UUID;
+      if (validRuleUser) {
+        r.userId =
+          rawRuleUser.toLowerCase() === rawAccountUser.toLowerCase()
+            ? rawAccountUser
+            : 'quarantine-conflicting-ownership';
+        return;
+      }
+
+      r.userId = 'quarantine-malformed-ownership';
     });
 }
 

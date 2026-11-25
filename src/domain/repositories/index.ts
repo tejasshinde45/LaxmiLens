@@ -5,3 +5,5 @@ export * from './BudgetRepository';
 export * from './ProfileRepository';
 export * from './LenderRepository';
 export * from './BorrowingRepository';
+export * from './RecurringRuleRepository';
+export * from './RecurringOccurrenceRepository';

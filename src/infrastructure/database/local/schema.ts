@@ -93,23 +93,50 @@ export interface LocalBudgetRecord {
 
 export interface LocalRecurringRuleRecord {
   id: string;
-  name: string;
+  userId: string;
+  title: string;
+  description?: string;
   type: 'income' | 'expense' | 'transfer';
-  amountInPaise: number;
+  amountPaise: number;
   accountId: string;
-  targetAccountId?: string;
   categoryId?: string;
-  frequency: 'daily' | 'weekly' | 'monthly' | 'yearly';
+  frequency: 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly';
   interval: number;
-  startDate: string;
-  endDate?: string;
-  nextDueDate: string;
-  lastGeneratedDate?: string;
+  anchorDayOfMonth: number;
+  startDate: string; // YYYY-MM-DD local calendar date
+  endDate?: string | null; // YYYY-MM-DD
+  nextDueDate: string; // YYYY-MM-DD
+  lastGeneratedDate?: string | null; // YYYY-MM-DD
+  status: 'active' | 'paused' | 'completed';
   requiresUserConfirmation: boolean;
-  isActive: boolean;
   version: number;
   createdAt: string;
   updatedAt: string;
+  deletedAt?: string | null;
+
+  // Legacy v1/v2 compatibility fields preserved during migration
+  name?: string;
+  amountInPaise?: number;
+  targetAccountId?: string;
+  isActive?: boolean;
+}
+
+export interface LocalRecurringOccurrenceRecord {
+  id: string;
+  userId: string;
+  recurringRuleId: string;
+  occurrenceDate: string; // YYYY-MM-DD local calendar date
+  status: 'pending' | 'confirmed' | 'skipped' | 'snoozed' | 'dismissed';
+  snoozedUntilDate?: string | null;
+  transactionId?: string | null;
+  idempotencyKey: string;
+  confirmedAt?: string | null;
+  skippedAt?: string | null;
+  dismissedAt?: string | null;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt?: string | null;
 }
 
 export interface LocalLenderRecord {
@@ -163,6 +190,7 @@ export interface LocalOutboxRecord {
     | 'categories'
     | 'budgets'
     | 'recurring_rules'
+    | 'recurring_occurrences'
     | 'lenders'
     | 'borrowings'
     | 'borrowing_repayments';

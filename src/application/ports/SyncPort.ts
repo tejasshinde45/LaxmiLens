@@ -5,6 +5,7 @@ export type SyncEntity =
   | 'categories'
   | 'budgets'
   | 'recurring_rules'
+  | 'recurring_occurrences'
   | 'lenders'
   | 'borrowings'
   | 'borrowing_repayments';

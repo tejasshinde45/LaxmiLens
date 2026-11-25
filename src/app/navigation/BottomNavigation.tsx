@@ -12,7 +12,8 @@ import {
   FileText,
   Settings,
   X,
-  HandCoins
+  HandCoins,
+  Repeat
 } from 'lucide-react';
 import { Dialog, DialogPortal, DialogOverlay } from '@/components/ui/Dialog';
 import { cn } from '@/utils/cn';
@@ -37,6 +38,7 @@ export const BottomNavigation: React.FC<BottomNavigationProps> = ({
   const moreItems = [
     { label: 'Borrowings', path: '/borrowings', icon: HandCoins, desc: 'Personal debts & repayments' },
     { label: 'Budgets', path: '/budgets', icon: PiggyBank, desc: 'Monthly category limits' },
+    { label: 'Recurring', path: '/recurring', icon: Repeat, desc: 'Recurring bills & reminders' },
     { label: 'Analytics', path: '/analytics', icon: PieChart, desc: 'Spending trends & breakdown' },
     { label: 'Calendar', path: '/calendar', icon: CalendarDays, desc: 'Upcoming scheduled events' },
     { label: 'Reports', path: '/reports', icon: FileText, desc: 'Financial summaries & exports' },

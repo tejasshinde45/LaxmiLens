@@ -36,3 +36,11 @@ export * from './use-cases/borrowings/EnsurePersonalBorrowingsAccountUseCase';
 export * from './use-cases/borrowings/AddBorrowingUseCase';
 export * from './use-cases/borrowings/RecordRepaymentUseCase';
 export * from './use-cases/borrowings/GetBorrowingsUseCase';
+
+export * from './use-cases/recurring/CreateRecurringRuleUseCase';
+export * from './use-cases/recurring/UpdateRecurringRuleUseCase';
+export * from './use-cases/recurring/PauseResumeRecurringRuleUseCase';
+export * from './use-cases/recurring/DeleteRecurringRuleUseCase';
+export * from './use-cases/recurring/ConfirmRecurringOccurrenceUseCase';
+export * from './use-cases/recurring/ManageRecurringOccurrenceUseCase';
+export * from './use-cases/recurring/GetRecurringOverviewUseCase';

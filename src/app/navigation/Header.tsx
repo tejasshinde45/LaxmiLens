@@ -15,6 +15,7 @@ import { Avatar } from '@/components/ui/Avatar';
 import { IconButton } from '@/components/ui/IconButton';
 import { Badge } from '@/components/ui/Badge';
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { useRecurring } from '@/features/recurring/hooks/useRecurring';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -45,6 +46,8 @@ export const Header: React.FC<HeaderProps> = ({
   const location = useLocation();
   const { user, signOut } = useAuth();
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const { overdue, dueToday } = useRecurring();
+  const urgentReminders = [...overdue, ...dueToday];
 
   const handleSignOut = async () => {
     try {
@@ -67,6 +70,8 @@ export const Header: React.FC<HeaderProps> = ({
         return 'Accounts';
       case '/budgets':
         return 'Budgets';
+      case '/recurring':
+        return 'Recurring & Reminders';
       case '/analytics':
         return 'Analytics';
       case '/calendar':
@@ -152,7 +157,9 @@ export const Header: React.FC<HeaderProps> = ({
             className="relative"
           >
             <Bell className="h-4 w-4" />
-            <span className="absolute top-2 right-2 h-1.5 w-1.5 rounded-full bg-[#D6AD60]" />
+            {urgentReminders.length > 0 && (
+              <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-[#D6AD60]" />
+            )}
           </IconButton>
 
           {/* Profile Dropdown */}
@@ -218,6 +225,38 @@ export const Header: React.FC<HeaderProps> = ({
           </DialogHeader>
 
           <div className="space-y-3 py-2">
+            {urgentReminders.length > 0 && (
+              <div className="space-y-2">
+                {urgentReminders.slice(0, 4).map((rem) => (
+                  <Link
+                    key={`${rem.recurringRuleId}:${rem.occurrenceDate}`}
+                    to="/recurring"
+                    onClick={() => setIsNotificationsOpen(false)}
+                    className="flex items-center justify-between gap-3 rounded-[10px] border border-[#D6AD60]/30 bg-[#1B1B1B] p-3 hover:border-[#D6AD60]/60 transition-colors"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-[#F5F1E8] truncate">
+                        {rem.title}
+                      </p>
+                      <p className="text-[11px] text-[#858078]">
+                        {rem.bucket === 'overdue'
+                          ? `${Math.abs(rem.daysUntilDue)} day(s) overdue`
+                          : 'Due today'}{' '}
+                        · {rem.accountName}
+                      </p>
+                    </div>
+                    <Badge
+                      variant={rem.bucket === 'overdue' ? 'expense' : 'gold'}
+                      size="sm"
+                      className="shrink-0"
+                    >
+                      {rem.amountFormatted}
+                    </Badge>
+                  </Link>
+                ))}
+              </div>
+            )}
+
             <div className="flex items-start gap-3 rounded-[10px] border border-[#303030] bg-[#242424] p-3">
               <CheckCircle2 className="h-4 w-4 text-[#72B895] shrink-0 mt-0.5" />
               <div className="space-y-0.5">

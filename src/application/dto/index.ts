@@ -4,3 +4,4 @@ export * from './CategoryDTO';
 export * from './SyncDTO';
 export * from './BorrowingDTO';
 export * from './BudgetDTO';
+export * from './RecurringDTO';

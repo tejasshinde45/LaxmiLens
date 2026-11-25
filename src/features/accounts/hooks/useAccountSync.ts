@@ -67,8 +67,10 @@ export function useAccountSync(client = globalQueryClient) {
         client.invalidateQueries({ queryKey: ['transactions', user?.id] });
         client.invalidateQueries({ queryKey: ['budgets', user?.id] });
         client.invalidateQueries({ queryKey: ['borrowings', user?.id] });
+        client.invalidateQueries({ queryKey: ['recurring', user?.id] });
         client.invalidateQueries({ queryKey: ['pendingOutboxBudgetIds', user?.id] });
         client.invalidateQueries({ queryKey: ['pendingOutboxTxIds', user?.id] });
+        client.invalidateQueries({ queryKey: ['pendingOutboxRecurringIds', user?.id] });
         client.invalidateQueries({ queryKey: pendingQueryKey });
 
         if (result.syncedCount > 0 && result.failedCount === 0) {

@@ -12,6 +12,7 @@ import { TransactionsPage } from '@/features/transactions/TransactionsPage';
 import { AccountsPage } from '@/features/accounts/AccountsPage';
 import { BorrowingsPage } from '@/features/borrowings/BorrowingsPage';
 import { BudgetsPage } from '@/features/budgets/BudgetsPage';
+import { RecurringPage } from '@/features/recurring/RecurringPage';
 import { AnalyticsPage } from '@/features/analytics/AnalyticsPage';
 import { CalendarPage } from '@/features/calendar/CalendarPage';
 import { ReportsPage } from '@/features/reports/ReportsPage';
@@ -78,6 +79,10 @@ export const router = createBrowserRouter([
           {
             path: 'budgets',
             element: <BudgetsPage />
+          },
+          {
+            path: 'recurring',
+            element: <RecurringPage />
           },
           {
             path: 'analytics',

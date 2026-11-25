@@ -16,3 +16,5 @@ export class BalanceService {
     return LedgerRules.calculateNetWorth(accountBalances);
   }
 }
+
+export * from './RecurrenceScheduleService';
