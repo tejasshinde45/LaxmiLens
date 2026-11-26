@@ -1,7 +1,7 @@
 import { AccountType } from '@/domain/entities/Account';
 import { BUDGET_PERIOD_REGEX } from '@/domain/entities/Budget';
 import { BorrowingStatus } from '@/domain/entities/Borrowing';
-import { CategoryType } from '@/domain/entities/Category';
+import { CategoryType, DEFAULT_CATEGORY_SEEDS } from '@/domain/entities/Category';
 import {
   MAX_UPCOMING_LEAD_DAYS,
   MIN_UPCOMING_LEAD_DAYS
@@ -109,6 +109,19 @@ const VALID_NOTIFICATION_ENTITY_TYPES = new Set<NotificationEntityType>([
 const VALID_OUTBOX_ENTITIES = new Set<BackupOutboxEntity>(BACKUP_OUTBOX_ENTITIES);
 const VALID_OUTBOX_OPERATIONS = new Set<BackupOutboxOperation>(['INSERT', 'UPDATE', 'DELETE']);
 const SHA256_HEX_REGEX = /^[0-9a-f]{64}$/;
+const KNOWN_DEFAULT_SEED_SIGNATURES = new Set<string>(
+  DEFAULT_CATEGORY_SEEDS.map((seed) => `${seed.type}:${seed.name.trim()}`)
+);
+
+export function isUntouchedKnownSeededDefaultCategory(
+  category: Pick<BackupCategoryRecord, 'name' | 'type' | 'isDefault' | 'isArchived' | 'version'>
+): boolean {
+  if (!category.isDefault || category.isArchived || category.version !== 1) {
+    return false;
+  }
+  const signature = `${category.type}:${category.name.trim()}`;
+  return KNOWN_DEFAULT_SEED_SIGNATURES.has(signature);
+}
 
 type ExcludedStoreKey = keyof Omit<BackupExcludedRecordCounts, 'total'>;
 
@@ -2048,6 +2061,8 @@ export class BackupValidationService {
     matchedDefaultIdsCount: number;
     conflictingDefaultIdsCount: number;
     unresolvedSeededDefaultCategoryIds: string[];
+    hasUnreplaceableTargetDefaults: boolean;
+    hasReferencedUnresolvedDefault: boolean;
   } {
     const targetCategories = target.existingCategories ?? [];
     if (
@@ -2066,11 +2081,14 @@ export class BackupValidationService {
       );
     }
 
+    const referencedIds = new Set<string>(target.referencedCategoryIds ?? []);
     const seenTargetIds = new Set<string>();
     const targetDefaultCategories: BackupCategoryRecord[] = [];
     const targetCustomCategories: BackupCategoryRecord[] = [];
     const unresolvedSeededDefaultCategoryIds: string[] = [];
     let matchedDefaultIdsCount = 0;
+    let hasUnreplaceableTargetDefaults = false;
+    let hasReferencedUnresolvedDefault = false;
 
     for (const rawTarget of targetCategories) {
       const record = rawTarget as unknown as Record<string, unknown>;
@@ -2138,6 +2156,12 @@ export class BackupValidationService {
         if (backupMatch && backupMatch.isDefault) {
           matchedDefaultIdsCount += 1;
         } else {
+          if (referencedIds.has(id)) {
+            hasReferencedUnresolvedDefault = true;
+          }
+          if (!isUntouchedKnownSeededDefaultCategory(rawTarget)) {
+            hasUnreplaceableTargetDefaults = true;
+          }
           unresolvedSeededDefaultCategoryIds.push(id);
         }
       } else {
@@ -2150,7 +2174,9 @@ export class BackupValidationService {
       targetCustomCategories,
       matchedDefaultIdsCount,
       conflictingDefaultIdsCount: targetDefaultCategories.length - matchedDefaultIdsCount,
-      unresolvedSeededDefaultCategoryIds
+      unresolvedSeededDefaultCategoryIds,
+      hasUnreplaceableTargetDefaults,
+      hasReferencedUnresolvedDefault
     };
   }
 
@@ -2170,6 +2196,7 @@ export class BackupValidationService {
     let matchedDefaultIdsCount = 0;
     let conflictingDefaultIdsCount = 0;
     let unresolvedSeededDefaultCategoryIds: string[] = [];
+    let hasReferencedUnresolvedDefault = false;
 
     if (target) {
       const targetUserId = validateUserId(target.authenticatedUserId);
@@ -2188,10 +2215,12 @@ export class BackupValidationService {
       matchedDefaultIdsCount = evaluatedCategories.matchedDefaultIdsCount;
       conflictingDefaultIdsCount = evaluatedCategories.conflictingDefaultIdsCount;
       unresolvedSeededDefaultCategoryIds = evaluatedCategories.unresolvedSeededDefaultCategoryIds;
+      hasReferencedUnresolvedDefault = evaluatedCategories.hasReferencedUnresolvedDefault;
 
       const targetCategoriesSupplied = target.existingCategories !== undefined;
       const c = target.existingCounts;
       const nonCategoryFinancialCount =
+        c.profile +
         c.accounts +
         c.transactions +
         c.budgets +
@@ -2201,13 +2230,18 @@ export class BackupValidationService {
         c.borrowings +
         c.borrowingRepayments +
         c.notifications +
+        c.notificationPreferences +
         c.pendingOutbox;
 
       const hasCustomCategories = evaluatedCategories.targetCustomCategories.length > 0;
+      const hasExternalCategoryReferences = (target.referencedCategoryIds?.length ?? 0) > 0;
 
       targetHasUserData =
         nonCategoryFinancialCount > 0 ||
         hasCustomCategories ||
+        hasExternalCategoryReferences ||
+        evaluatedCategories.hasUnreplaceableTargetDefaults ||
+        hasReferencedUnresolvedDefault ||
         (!targetCategoriesSupplied && c.categories > 0);
 
       targetHasOnlyDefaultCategories =
@@ -2218,12 +2252,24 @@ export class BackupValidationService {
     const requiresReplaceConfirmation = targetHasUserData;
 
     if (options.mode === 'empty' && targetHasUserData) {
+      if (hasReferencedUnresolvedDefault) {
+        throw new BackupValidationError(
+          'Cannot safely replace pre-seeded default categories because existing local financial records reference them. Use replace mode to overwrite local data.',
+          [
+            {
+              code: 'REFERENCED_TARGET_CATEGORY_PROTECTED',
+              store: 'categories',
+              message: 'Target default categories have existing financial references.'
+            }
+          ]
+        );
+      }
       throw new BackupValidationError(
-        'Local database already contains financial data. Use explicit replace mode to overwrite existing local data.'
+        'Local database already contains user data or modified categories. Use explicit replace mode to overwrite existing local data.'
       );
     }
 
-    if (options.mode === 'replace' && targetHasUserData) {
+    if (options.mode === 'replace') {
       if (options.confirmationText?.trim() !== BACKUP_REPLACE_CONFIRMATION_TEXT) {
         throw new BackupValidationError(
           `Replace restore requires typing '${BACKUP_REPLACE_CONFIRMATION_TEXT}' to confirm overwriting existing local data.`
@@ -2275,11 +2321,15 @@ export class BackupValidationService {
       limitationNote:
         'Existing Dexie and Postgres schemas seed default categories with random UUIDs and no immutable template seed key; editable display names cannot be used alone to equate categories across devices. Stage 2 must preserve backup category UUIDs and categoryMappings verbatim.',
       targetDefaultReconciliationAction,
-      unresolvedSeededDefaultCategoryIds
+      unresolvedSeededDefaultCategoryIds: targetHasOnlyDefaultCategories
+        ? unresolvedSeededDefaultCategoryIds
+        : []
     };
 
     return {
       valid: true,
+      ownerMatchesAuthenticatedUser: true,
+      restorePendingOutboxEnabled: restoreOutbox,
       manifestSummary: {
         appName: archive.manifest.appName,
         appVersion: archive.manifest.appVersion,

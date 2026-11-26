@@ -3,6 +3,7 @@ export * from './ports/StoragePort';
 export * from './ports/SyncPort';
 export * from './ports/AuthPort';
 export * from './ports/UnitOfWork';
+export * from './ports/BackupStoragePort';
 
 export * from './dto';
 
@@ -11,8 +12,13 @@ export * from './services/FinancialAnalyticsService';
 export * from './services/FinancialReportService';
 export * from './services/BackupEncryptionService';
 export * from './services/BackupValidationService';
+export * from './services/SafetyBackupReceiptService';
 
 export * from './use-cases/reports/GenerateFinancialReportUseCase';
+export * from './use-cases/backup/ExportEncryptedBackupUseCase';
+export * from './use-cases/backup/DecryptBackupFileUseCase';
+export * from './use-cases/backup/GenerateRestorePreviewUseCase';
+export * from './use-cases/backup/ExecuteBackupRestoreUseCase';
 
 export * from './use-cases/accounts/CreateAccountUseCase';
 export * from './use-cases/accounts/UpdateAccountUseCase';

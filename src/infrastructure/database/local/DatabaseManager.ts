@@ -18,7 +18,10 @@ import { DexieRecurringRuleRepository } from './repositories/DexieRecurringRuleR
 import { DexieRecurringOccurrenceRepository } from './repositories/DexieRecurringOccurrenceRepository';
 import { DexieNotificationRepository } from './repositories/DexieNotificationRepository';
 import { DexieNotificationPreferenceRepository } from './repositories/DexieNotificationPreferenceRepository';
+import { DexieBackupRepository } from './repositories/DexieBackupRepository';
 import { OutboxManager } from '@/infrastructure/sync/OutboxManager';
+import { BrowserBackupFileExporter } from '@/infrastructure/backup/BrowserBackupFileExporter';
+import { ReactQueryBackupCacheInvalidator } from '@/infrastructure/backup/ReactQueryBackupCacheInvalidator';
 import { DexieUnitOfWork } from './DexieUnitOfWork';
 import { ManualSyncCoordinator } from '@/infrastructure/sync/ManualSyncCoordinator';
 import { AccountSyncDispatcher } from '@/infrastructure/sync/dispatchers/AccountSyncDispatcher';
@@ -117,7 +120,16 @@ import {
   DismissNotificationUseCase,
   GetNotificationPreferencesUseCase,
   UpdateNotificationPreferencesUseCase,
-  GenerateFinancialReportUseCase
+  GenerateFinancialReportUseCase,
+  BackupCacheInvalidator,
+  BackupEncryptionService,
+  BackupFileExporter,
+  BackupValidationService,
+  SafetyBackupReceiptRegistry,
+  ExportEncryptedBackupUseCase,
+  DecryptBackupFileUseCase,
+  GenerateRestorePreviewUseCase,
+  ExecuteBackupRestoreUseCase
 } from '@/application';
 
 export const DATABASE_PREFIX = 'LaxmiLens_LocalDB';
@@ -142,6 +154,8 @@ export interface UserRepositories {
   recurringOccurrenceRepo: DexieRecurringOccurrenceRepository;
   notificationRepo: DexieNotificationRepository;
   notificationPreferenceRepo: DexieNotificationPreferenceRepository;
+  backupRepo: DexieBackupRepository;
+  safetyBackupReceiptRegistry: SafetyBackupReceiptRegistry;
   outboxManager: OutboxManager;
   unitOfWork: DexieUnitOfWork;
   syncCoordinator: ManualSyncCoordinator;
@@ -194,6 +208,12 @@ export interface UserRepositories {
 
   // Pre-wired financial reporting use case
   generateFinancialReportUseCase: GenerateFinancialReportUseCase;
+
+  // Pre-wired encrypted backup & restore use cases
+  exportEncryptedBackupUseCase: ExportEncryptedBackupUseCase;
+  decryptBackupFileUseCase: DecryptBackupFileUseCase;
+  generateRestorePreviewUseCase: GenerateRestorePreviewUseCase;
+  executeBackupRestoreUseCase: ExecuteBackupRestoreUseCase;
 }
 
 export class DatabaseManager {
@@ -243,7 +263,9 @@ export class DatabaseManager {
       supabaseTransactionRepo
     ),
     private readonly supabaseNotificationRepo: ISupabaseNotificationRepository = new SupabaseNotificationRepository(),
-    private readonly supabaseNotificationPreferenceRepo: ISupabaseNotificationPreferenceRepository = new SupabaseNotificationPreferenceRepository()
+    private readonly supabaseNotificationPreferenceRepo: ISupabaseNotificationPreferenceRepository = new SupabaseNotificationPreferenceRepository(),
+    private readonly backupFileExporter: BackupFileExporter = new BrowserBackupFileExporter(),
+    private readonly backupCacheInvalidator: BackupCacheInvalidator = new ReactQueryBackupCacheInvalidator()
   ) {}
 
   public getSessionGeneration(): number {
@@ -393,6 +415,7 @@ export class DatabaseManager {
   }
 
   private async internalCloseDatabase(): Promise<void> {
+    this.activeRepositories?.safetyBackupReceiptRegistry?.clear();
     const dbToClose = this.activeDatabase;
     this.activeDatabase = null;
     this.activeUserId = null;
@@ -616,6 +639,11 @@ export class DatabaseManager {
     const recurringOccurrenceRepo = new DexieRecurringOccurrenceRepository(database);
     const notificationRepo = new DexieNotificationRepository(database);
     const notificationPreferenceRepo = new DexieNotificationPreferenceRepository(database);
+    const databaseIdentity = `${database.name || getDatabaseNameForUser(userId)}#gen${generation}`;
+    const backupRepo = new DexieBackupRepository(database, databaseIdentity);
+    const safetyBackupReceiptRegistry = new SafetyBackupReceiptRegistry();
+    const backupEncryptionService = new BackupEncryptionService();
+    const backupValidationService = new BackupValidationService();
 
     const ensureBorrowingsAccountUseCase = new EnsurePersonalBorrowingsAccountUseCase(
       accountRepo,
@@ -781,6 +809,40 @@ export class DatabaseManager {
       categoryRepo
     );
 
+    const exportEncryptedBackupUseCase = new ExportEncryptedBackupUseCase(
+      this.authPort,
+      backupRepo,
+      syncCoordinator,
+      backupEncryptionService,
+      backupValidationService,
+      this.backupFileExporter,
+      userId,
+      safetyBackupReceiptRegistry
+    );
+    const decryptBackupFileUseCase = new DecryptBackupFileUseCase(
+      this.authPort,
+      syncCoordinator,
+      backupEncryptionService,
+      userId
+    );
+    const generateRestorePreviewUseCase = new GenerateRestorePreviewUseCase(
+      this.authPort,
+      backupRepo,
+      syncCoordinator,
+      decryptBackupFileUseCase,
+      backupValidationService,
+      userId
+    );
+    const executeBackupRestoreUseCase = new ExecuteBackupRestoreUseCase(
+      this.authPort,
+      backupRepo,
+      syncCoordinator,
+      backupValidationService,
+      this.backupCacheInvalidator,
+      userId,
+      safetyBackupReceiptRegistry
+    );
+
     this.activeRepositories = {
       userId,
       generation,
@@ -796,6 +858,8 @@ export class DatabaseManager {
       recurringOccurrenceRepo,
       notificationRepo,
       notificationPreferenceRepo,
+      backupRepo,
+      safetyBackupReceiptRegistry,
       outboxManager,
       unitOfWork,
       syncCoordinator,
@@ -835,7 +899,11 @@ export class DatabaseManager {
       dismissNotificationUseCase,
       getNotificationPreferencesUseCase,
       updateNotificationPreferencesUseCase,
-      generateFinancialReportUseCase
+      generateFinancialReportUseCase,
+      exportEncryptedBackupUseCase,
+      decryptBackupFileUseCase,
+      generateRestorePreviewUseCase,
+      executeBackupRestoreUseCase
     };
 
     return this.activeRepositories;

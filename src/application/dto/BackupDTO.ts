@@ -431,6 +431,7 @@ export interface BackupTargetSummary {
   currentDexieSchemaVersion: number;
   existingCounts: BackupRecordCounts;
   existingCategories?: readonly BackupCategoryRecord[];
+  referencedCategoryIds?: readonly string[];
 }
 
 export interface RestoreValidationOptions {
@@ -463,6 +464,8 @@ export interface BackupCategoryIdentityContract {
 
 export interface RestorePreviewSummaryDTO {
   valid: boolean;
+  ownerMatchesAuthenticatedUser: boolean;
+  restorePendingOutboxEnabled: boolean;
   manifestSummary: {
     appName: string;
     appVersion: string;
@@ -490,4 +493,69 @@ export interface RestorePreviewSummaryDTO {
   };
   categoryIdentityContract: BackupCategoryIdentityContract;
   warnings: string[];
+}
+
+export interface ExportEncryptedBackupInputDTO {
+  passphrase: string;
+  downloadFile?: boolean;
+  filename?: string;
+}
+
+export interface SafetyBackupReceipt {
+  readonly receiptId: string;
+  readonly userId: string;
+  readonly databaseIdentity: string;
+  readonly stateDigestSha256Hex: string;
+  readonly issuedAt: string;
+  readonly expiresAt: string;
+}
+
+export interface ExportEncryptedBackupResultDTO {
+  filename: string;
+  byteLength: number;
+  downloaded: boolean;
+  safetyBackupCreated: boolean;
+  safetyBackupReceipt: SafetyBackupReceipt;
+  envelope: EncryptedBackupEnvelope;
+  manifest: BackupManifest;
+}
+
+export interface DecryptBackupFileInputDTO {
+  file?: File | Blob;
+  rawContent?: unknown;
+  passphrase: string;
+}
+
+export interface DecryptedBackupResultDTO {
+  archive: BackupArchiveDocument;
+  envelope: EncryptedBackupEnvelope;
+}
+
+export interface GenerateRestorePreviewInputDTO {
+  archive?: BackupArchiveDocument;
+  file?: File | Blob;
+  rawContent?: unknown;
+  passphrase?: string;
+  mode?: BackupRestoreMode;
+  restorePendingOutbox?: boolean;
+  confirmationText?: string;
+  safetyBackupConfirmed?: boolean;
+}
+
+export interface ExecuteBackupRestoreInputDTO {
+  archive: BackupArchiveDocument;
+  mode: BackupRestoreMode;
+  restorePendingOutbox?: boolean;
+  confirmationText?: string;
+  safetyBackupReceipt?: SafetyBackupReceipt;
+}
+
+export interface ExecuteBackupRestoreResultDTO {
+  restoredAt: string;
+  mode: BackupRestoreMode;
+  restoredCounts: BackupRecordCounts;
+  restoredOutboxCount: number;
+  replacedSeededDefaultCategoryIds: string[];
+  cachesInvalidated: boolean;
+  autoSyncTriggered: false;
 }

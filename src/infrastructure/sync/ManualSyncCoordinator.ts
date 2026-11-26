@@ -14,6 +14,11 @@ import { NotificationPreferenceSyncDispatcher } from './dispatchers/Notification
 import { NotificationReconciliationService } from './NotificationReconciliationService';
 import { OutboxManager } from './OutboxManager';
 import { AuthPort } from '@/application/ports/AuthPort';
+import {
+  BackupExclusiveOperation,
+  BackupSyncActivityGuard
+} from '@/application/ports/BackupStoragePort';
+import { BackupSyncConflictError } from '@/domain/errors/BackupErrors';
 import { LocalOutboxRecord } from '../database/local/schema';
 import {
   SyncAuthError,
@@ -160,8 +165,9 @@ export interface UnifiedSyncResult {
  *    acknowledged (deleted) solely by dispatchers after verified remote persistence.
  * 10. Zero Background/Timer Activity: No timers, listeners, or automatic triggers.
  */
-export class ManualSyncCoordinator {
+export class ManualSyncCoordinator implements BackupSyncActivityGuard {
   private isRunning = false;
+  private exclusiveOperation: 'sync' | BackupExclusiveOperation | null = null;
 
   constructor(
     private readonly accountDispatcher: AccountSyncDispatcher,
@@ -184,6 +190,34 @@ export class ManualSyncCoordinator {
 
   public isSyncRunning(): boolean {
     return this.isRunning;
+  }
+
+  public isOperationInProgress(): boolean {
+    return this.isRunning || this.exclusiveOperation !== null;
+  }
+
+  /**
+   * Executes a backup or restore critical section under the same exclusive operation
+   * mutex used by manual cloud sync, guaranteeing release in `finally`.
+   */
+  public async runExclusive<T>(
+    operation: BackupExclusiveOperation,
+    work: () => Promise<T>
+  ): Promise<T> {
+    if (this.isSyncRunning() || this.exclusiveOperation !== null) {
+      throw new BackupSyncConflictError(
+        this.isSyncRunning()
+          ? 'Backup and restore operations cannot run while manual synchronization is in progress.'
+          : 'Another backup or restore operation is already in progress.'
+      );
+    }
+
+    this.exclusiveOperation = operation;
+    try {
+      return await work();
+    } finally {
+      this.exclusiveOperation = null;
+    }
   }
 
   /**
@@ -230,11 +264,16 @@ export class ManualSyncCoordinator {
    * Executes unified manual synchronization of pending outbox records.
    */
   public async run(limit = 100): Promise<UnifiedSyncResult> {
-    if (this.isRunning) {
-      throw new SyncInProgressError();
+    if (this.isRunning || this.exclusiveOperation !== null) {
+      throw new SyncInProgressError(
+        this.exclusiveOperation && this.exclusiveOperation !== 'sync'
+          ? 'Synchronization cannot start while a backup or restore operation is in progress.'
+          : undefined
+      );
     }
 
     this.isRunning = true;
+    this.exclusiveOperation = 'sync';
 
     try {
       // 1. Guard authenticated session
@@ -1350,6 +1389,7 @@ export class ManualSyncCoordinator {
 
       return result;
     } finally {
+      this.exclusiveOperation = null;
       this.isRunning = false;
     }
   }

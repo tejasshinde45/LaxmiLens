@@ -64,3 +64,42 @@ export class BackupValidationError extends DomainError {
     this.issues = Object.freeze(issues.map((issue) => Object.freeze({ ...issue })));
   }
 }
+
+export class BackupAuthenticationError extends DomainError {
+  constructor(
+    message = 'An authenticated user session is required to perform backup or restore operations.'
+  ) {
+    super(message, 'BACKUP_AUTH_REQUIRED');
+  }
+}
+
+export class BackupSyncConflictError extends DomainError {
+  constructor(
+    message = 'Backup and restore operations cannot run while manual synchronization is in progress.'
+  ) {
+    super(message, 'BACKUP_SYNC_IN_PROGRESS');
+  }
+}
+
+export class BackupPersistenceError extends DomainError {
+  constructor(
+    message = 'Atomic backup restore failed during local database persistence and all changes were rolled back.'
+  ) {
+    super(message, 'BACKUP_PERSISTENCE_FAILED');
+  }
+}
+
+export class SafetyBackupRequiredError extends BackupValidationError {
+  constructor(
+    message = 'A fresh, valid safety backup receipt for the current database state is required before replacing local data.'
+  ) {
+    super(message, [
+      {
+        code: 'SAFETY_BACKUP_RECEIPT_REQUIRED',
+        store: 'backup',
+        message
+      }
+    ]);
+    this.name = this.constructor.name;
+  }
+}
