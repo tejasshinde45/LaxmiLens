@@ -9,6 +9,8 @@ export * from './dto';
 export * from './services/BudgetSpendingService';
 export * from './services/FinancialAnalyticsService';
 export * from './services/FinancialReportService';
+export * from './services/BackupEncryptionService';
+export * from './services/BackupValidationService';
 
 export * from './use-cases/reports/GenerateFinancialReportUseCase';
 

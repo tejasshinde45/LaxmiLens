@@ -23,3 +23,4 @@ export * from './errors/DomainErrors';
 export * from './errors/BorrowingErrors';
 export * from './errors/BudgetErrors';
 export * from './errors/RecurringErrors';
+export * from './errors/BackupErrors';
