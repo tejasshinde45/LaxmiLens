@@ -2,6 +2,7 @@ export * from './context/AuthContext';
 export * from './hooks/useAuth';
 export * from './schemas/authSchemas';
 export * from './utils/redirects';
+export * from './utils/recoveryUrl';
 export * from './components/AuthCard';
 export * from './components/AuthLoadingScreen';
 export * from './components/GoogleSignInButton';

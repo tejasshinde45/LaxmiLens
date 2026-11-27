@@ -2409,4 +2409,711 @@ describe('Step 2: Cross-Device Identity & Core Ledger Reconciliation', () => {
     expect(await harness.db.borrowingRepayments.toArray()).toHaveLength(1);
     expect(await harness.db.syncOutbox.toArray()).toHaveLength(0);
   });
+
+  it('14. treats empty and whitespace-only optional text as equivalent to cloud NULL across transactions, borrowings, accounts, and categories while preserving genuine conflicts, OCC, and pending outbox', async () => {
+    const accId = 'aaaa1401-1111-4111-8111-111111111111';
+    const accConflictId = 'aaaa1402-1111-4111-8111-111111111111';
+    const catId = 'bbbb1401-1111-4111-8111-111111111111';
+    const catConflictId = 'bbbb1402-1111-4111-8111-111111111111';
+    const txEmptyId = 'cccc1401-1111-4111-8111-111111111111';
+    const txWhitespaceId = 'cccc1402-1111-4111-8111-111111111111';
+    const txTrimmedMatchId = 'cccc1403-1111-4111-8111-111111111111';
+    const txDeletedEmptyId = 'cccc1404-1111-4111-8111-111111111111';
+    const txPendingId = 'cccc1405-1111-4111-8111-111111111111';
+    const txConflictId = 'cccc1406-1111-4111-8111-111111111111';
+    const txNewerCloudId = 'cccc1407-1111-4111-8111-111111111111';
+    const txOlderCloudId = 'cccc1408-1111-4111-8111-111111111111';
+    const lenderId = 'dddd1401-1111-4111-8111-111111111111';
+    const borrowingId = 'eeee1401-1111-4111-8111-111111111111';
+    const repaymentId = 'ffff1401-1111-4111-8111-111111111111';
+    const borTxId = 'cccc1409-1111-4111-8111-111111111111';
+    const repTxId = 'cccc1410-1111-4111-8111-111111111111';
+    const iso3 = '2026-11-24T09:00:00.000Z';
+
+    // Cloud accounts: NULL optional metadata vs conflict account with differing notes
+    cloud.accounts.set(accId, {
+      id: accId,
+      user_id: userId,
+      name: 'Main Bank',
+      account_type: 'bank',
+      opening_balance_paise: 100000,
+      currency: 'INR',
+      institution_name: null,
+      color: null,
+      icon: null,
+      notes: null,
+      system_tag: null,
+      is_archived: false,
+      version: 2,
+      created_at: iso1,
+      updated_at: iso2
+    });
+    cloud.accounts.set(accConflictId, {
+      id: accConflictId,
+      user_id: userId,
+      name: 'Wallet',
+      account_type: 'wallet',
+      opening_balance_paise: 5000,
+      currency: 'INR',
+      institution_name: null,
+      color: null,
+      icon: null,
+      notes: 'Cloud wallet note',
+      system_tag: null,
+      is_archived: false,
+      version: 1,
+      created_at: iso1,
+      updated_at: iso1
+    });
+
+    // Cloud categories: NULL icon/color vs conflict category with differing color
+    cloud.categories.set(catId, {
+      id: catId,
+      user_id: userId,
+      name: 'Custom Food',
+      type: 'expense',
+      icon: null,
+      color: null,
+      is_default: false,
+      is_archived: false,
+      version: 1,
+      created_at: iso1,
+      updated_at: iso1
+    });
+    cloud.categories.set(catConflictId, {
+      id: catConflictId,
+      user_id: userId,
+      name: 'Travel',
+      type: 'expense',
+      icon: 'Plane',
+      color: '#112233',
+      is_default: false,
+      is_archived: false,
+      version: 1,
+      created_at: iso1,
+      updated_at: iso1
+    });
+
+    // Cloud transactions
+    cloud.transactions.set(txEmptyId, {
+      id: txEmptyId,
+      user_id: userId,
+      type: 'expense',
+      amount_paise: 15000,
+      currency: 'INR',
+      account_id: accId,
+      destination_account_id: null,
+      category_id: catId,
+      title: 'Edited Blank Note',
+      note: null,
+      transaction_date: iso1,
+      deleted_at: null,
+      version: 2,
+      device_id: 'dev-a',
+      idempotency_key: 'k-empty-note',
+      created_at: iso1,
+      updated_at: iso2
+    });
+    cloud.transactions.set(txWhitespaceId, {
+      id: txWhitespaceId,
+      user_id: userId,
+      type: 'expense',
+      amount_paise: 25000,
+      currency: 'INR',
+      account_id: accId,
+      destination_account_id: null,
+      category_id: catId,
+      title: 'Whitespace Note',
+      note: null,
+      transaction_date: iso1,
+      deleted_at: null,
+      version: 1,
+      device_id: 'dev-a',
+      idempotency_key: 'k-ws-note',
+      created_at: iso1,
+      updated_at: iso1
+    });
+    cloud.transactions.set(txTrimmedMatchId, {
+      id: txTrimmedMatchId,
+      user_id: userId,
+      type: 'expense',
+      amount_paise: 35000,
+      currency: 'INR',
+      account_id: accId,
+      destination_account_id: null,
+      category_id: catId,
+      title: 'Trimmed Note Match',
+      note: 'Coffee bill',
+      transaction_date: iso1,
+      deleted_at: null,
+      version: 1,
+      device_id: 'dev-a',
+      idempotency_key: 'k-trimmed-match',
+      created_at: iso1,
+      updated_at: iso1
+    });
+    cloud.transactions.set(txDeletedEmptyId, {
+      id: txDeletedEmptyId,
+      user_id: userId,
+      type: 'expense',
+      amount_paise: 45000,
+      currency: 'INR',
+      account_id: accId,
+      destination_account_id: null,
+      category_id: catId,
+      title: 'Deleted Blank Note',
+      note: null,
+      transaction_date: iso1,
+      deleted_at: iso2,
+      version: 2,
+      device_id: 'dev-a',
+      idempotency_key: 'k-deleted-empty',
+      created_at: iso1,
+      updated_at: iso2
+    });
+    cloud.transactions.set(txPendingId, {
+      id: txPendingId,
+      user_id: userId,
+      type: 'expense',
+      amount_paise: 55000,
+      currency: 'INR',
+      account_id: accId,
+      destination_account_id: null,
+      category_id: catId,
+      title: 'Cloud Version Before Pending Local Edit',
+      note: 'Remote note',
+      transaction_date: iso1,
+      deleted_at: null,
+      version: 2,
+      device_id: 'dev-b',
+      idempotency_key: 'k-pending-outbox',
+      created_at: iso1,
+      updated_at: iso2
+    });
+    cloud.transactions.set(txNewerCloudId, {
+      id: txNewerCloudId,
+      user_id: userId,
+      type: 'expense',
+      amount_paise: 65000,
+      currency: 'INR',
+      account_id: accId,
+      destination_account_id: null,
+      category_id: catId,
+      title: 'Cloud Newer Update',
+      note: 'Updated remotely',
+      transaction_date: iso1,
+      deleted_at: null,
+      version: 3,
+      device_id: 'dev-b',
+      idempotency_key: 'k-newer-occ',
+      created_at: iso1,
+      updated_at: iso3
+    });
+    cloud.transactions.set(txOlderCloudId, {
+      id: txOlderCloudId,
+      user_id: userId,
+      type: 'expense',
+      amount_paise: 75000,
+      currency: 'INR',
+      account_id: accId,
+      destination_account_id: null,
+      category_id: catId,
+      title: 'Older Cloud Row',
+      note: null,
+      transaction_date: iso1,
+      deleted_at: null,
+      version: 1,
+      device_id: 'dev-b',
+      idempotency_key: 'k-older-occ',
+      created_at: iso1,
+      updated_at: iso1
+    });
+    cloud.transactions.set(borTxId, {
+      id: borTxId,
+      user_id: userId,
+      type: 'expense',
+      amount_paise: 90000,
+      currency: 'INR',
+      account_id: accId,
+      destination_account_id: null,
+      category_id: catId,
+      title: 'Borrowing Ledger Ref',
+      note: null,
+      transaction_date: iso1,
+      deleted_at: null,
+      version: 1,
+      device_id: 'dev-a',
+      idempotency_key: 'k-bor-ref',
+      created_at: iso1,
+      updated_at: iso1
+    });
+    cloud.transactions.set(repTxId, {
+      id: repTxId,
+      user_id: userId,
+      type: 'expense',
+      amount_paise: 40000,
+      currency: 'INR',
+      account_id: accId,
+      destination_account_id: null,
+      category_id: catId,
+      title: 'Repayment Ledger Ref',
+      note: null,
+      transaction_date: iso2,
+      deleted_at: null,
+      version: 1,
+      device_id: 'dev-a',
+      idempotency_key: 'k-rep-ref',
+      created_at: iso2,
+      updated_at: iso2
+    });
+
+    // Cloud borrowings graph with NULL optional strings
+    cloud.lenders.set(lenderId, {
+      id: lenderId,
+      user_id: userId,
+      name: 'Rohan',
+      phone: null,
+      email: null,
+      notes: null,
+      is_archived: false,
+      created_at: iso1,
+      updated_at: iso1
+    });
+    cloud.borrowings.set(borrowingId, {
+      id: borrowingId,
+      user_id: userId,
+      lender_id: lenderId,
+      amount_paise: 90000,
+      borrowing_date: iso1,
+      due_date: null,
+      receiving_account_id: accId,
+      transaction_id: borTxId,
+      status: 'active',
+      notes: null,
+      created_at: iso1,
+      updated_at: iso1
+    });
+    cloud.repayments.set(repaymentId, {
+      id: repaymentId,
+      user_id: userId,
+      borrowing_id: borrowingId,
+      lender_id: lenderId,
+      amount_paise: 40000,
+      repayment_date: iso2,
+      payment_account_id: accId,
+      transaction_id: repTxId,
+      notes: null,
+      created_at: iso2,
+      updated_at: iso2
+    });
+
+    const harness = buildCoordinatorHarness(userId, cloud);
+
+    // Populate clean local records that contain legacy empty/whitespace optional strings
+    await harness.db.accounts.put({
+      id: accId,
+      userId,
+      name: 'Main Bank',
+      type: 'bank',
+      accountType: 'bank',
+      openingBalancePaise: 100000,
+      openingBalanceInPaise: 100000,
+      currency: 'INR',
+      institutionName: '',
+      color: '   ',
+      icon: '',
+      notes: '  \t ',
+      systemTag: null,
+      status: 'active',
+      isArchived: false,
+      version: 2,
+      createdAt: iso1,
+      updatedAt: iso2
+    });
+    await harness.db.categories.put({
+      id: catId,
+      userId,
+      name: 'Custom Food',
+      type: 'expense',
+      icon: '',
+      color: '  ',
+      isDefault: false,
+      isSystem: false,
+      isArchived: false,
+      version: 1,
+      createdAt: iso1,
+      updatedAt: iso1
+    });
+
+    const putBaseLocalTx = async (
+      id: string,
+      title: string,
+      idemp: string,
+      version: number,
+      note: string | undefined,
+      notes: string | undefined,
+      deletedAt: string | null = null,
+      updatedAt: string = iso1
+    ) => {
+      await harness.db.transactions.put({
+        id,
+        userId,
+        type: 'expense',
+        amountPaise:
+          id === txEmptyId
+            ? 15000
+            : id === txWhitespaceId
+              ? 25000
+              : id === txTrimmedMatchId
+                ? 35000
+                : id === txDeletedEmptyId
+                  ? 45000
+                  : id === txPendingId
+                    ? 55000
+                    : id === txNewerCloudId
+                      ? 65000
+                      : id === txOlderCloudId
+                        ? 75000
+                        : id === borTxId
+                          ? 90000
+                          : 40000,
+        amountInPaise:
+          id === txEmptyId
+            ? 15000
+            : id === txWhitespaceId
+              ? 25000
+              : id === txTrimmedMatchId
+                ? 35000
+                : id === txDeletedEmptyId
+                  ? 45000
+                  : id === txPendingId
+                    ? 55000
+                    : id === txNewerCloudId
+                      ? 65000
+                      : id === txOlderCloudId
+                        ? 75000
+                        : id === borTxId
+                          ? 90000
+                          : 40000,
+        currency: 'INR',
+        accountId: accId,
+        categoryId: catId,
+        title,
+        description: title,
+        note,
+        notes,
+        transactionDate: id === repTxId ? iso2 : iso1,
+        date: id === repTxId ? iso2 : iso1,
+        deletedAt,
+        isDeleted: deletedAt !== null,
+        version,
+        deviceId: 'dev-a',
+        idempotencyKey: idemp,
+        status: 'cleared',
+        createdAt: id === repTxId ? iso2 : iso1,
+        updatedAt
+      });
+    };
+
+    await putBaseLocalTx(txEmptyId, 'Edited Blank Note', 'k-empty-note', 2, '', '', null, iso2);
+    await putBaseLocalTx(txWhitespaceId, 'Whitespace Note', 'k-ws-note', 1, '   ', '   ');
+    await putBaseLocalTx(
+      txTrimmedMatchId,
+      'Trimmed Note Match',
+      'k-trimmed-match',
+      1,
+      '  Coffee bill  ',
+      '  Coffee bill  '
+    );
+    await putBaseLocalTx(
+      txDeletedEmptyId,
+      'Deleted Blank Note',
+      'k-deleted-empty',
+      2,
+      '',
+      '',
+      iso2,
+      iso2
+    );
+    await putBaseLocalTx(
+      txPendingId,
+      'Local Pending Title',
+      'k-pending-outbox',
+      2,
+      '',
+      '',
+      null,
+      iso2
+    );
+    await putBaseLocalTx(txNewerCloudId, 'Local Stale Title', 'k-newer-occ', 2, 'Old local note', 'Old local note', null, iso2);
+    await putBaseLocalTx(txOlderCloudId, 'Local Newer Title', 'k-older-occ', 2, 'Local note v2', 'Local note v2', null, iso2);
+    await putBaseLocalTx(borTxId, 'Borrowing Ledger Ref', 'k-bor-ref', 1, '', '');
+    await putBaseLocalTx(repTxId, 'Repayment Ledger Ref', 'k-rep-ref', 1, '', '', null, iso2);
+
+    // Local lenders/borrowings/repayments with '' / whitespace at equal timestamps
+    await harness.db.lenders.put({
+      id: lenderId,
+      userId,
+      name: 'Rohan',
+      phone: '',
+      email: '  ',
+      notes: '\t',
+      isArchived: false,
+      createdAt: iso1,
+      updatedAt: iso1
+    });
+    await harness.db.borrowings.put({
+      id: borrowingId,
+      userId,
+      lenderId,
+      amountPaise: 90000,
+      borrowingDate: iso1,
+      dueDate: null,
+      receivingAccountId: accId,
+      transactionId: borTxId,
+      status: 'active',
+      notes: '   ',
+      createdAt: iso1,
+      updatedAt: iso1
+    });
+    await harness.db.borrowingRepayments.put({
+      id: repaymentId,
+      userId,
+      borrowingId,
+      lenderId,
+      amountPaise: 40000,
+      repaymentDate: iso2,
+      paymentAccountId: accId,
+      transactionId: repTxId,
+      notes: '',
+      createdAt: iso2,
+      updatedAt: iso2
+    });
+
+    // Existing pending outbox record that must stay untouched and block pull overwrite
+    await harness.outboxManager.enqueue({
+      userId,
+      entity: 'transactions',
+      entityId: txPendingId,
+      operation: 'UPDATE',
+      payload: {
+        id: txPendingId,
+        user_id: userId,
+        title: 'Local Pending Title',
+        version: 2
+      },
+      idempotencyKey: 'outbox-pending-1'
+    });
+
+    // 1. Reconcile Categories, Accounts, Transactions, and Borrowings cleanly
+    const catRes = await harness.categoryReconciler.pullAndReconcile(userId);
+    expect(catRes.conflictCount).toBe(0);
+    expect(catRes.insertedCount).toBe(1); // catConflictId pulled fresh
+
+    const accRes = await harness.accountReconciler.pullAndReconcile(userId);
+    expect(accRes.conflictCount).toBe(0);
+    expect(accRes.insertedCount).toBe(1); // accConflictId pulled fresh
+
+    const txRes = await harness.transactionReconciler.pullAndReconcile(userId);
+    expect(txRes.conflictCount).toBe(1); // Only txOlderCloudId (cloud v1 < local v2)
+    expect(txRes.conflicts[0].transactionId).toBe(txOlderCloudId);
+    expect(txRes.updatedCount).toBe(1); // txNewerCloudId (cloud v3 > local v2)
+    expect(txRes.skippedPendingCount).toBe(1); // txPendingId untouched
+
+    const borRes = await harness.borrowingsReconciler.pullAndReconcile(userId);
+    expect(borRes.conflictCount).toBe(0);
+    expect(borRes.lenders.conflictCount).toBe(0);
+    expect(borRes.borrowings.conflictCount).toBe(0);
+    expect(borRes.repayments.conflictCount).toBe(0);
+
+    // Verify OCC outcomes and untouched pending outbox entry
+    expect((await harness.db.transactions.get(txNewerCloudId))?.note).toBe('Updated remotely');
+    expect((await harness.db.transactions.get(txOlderCloudId))?.version).toBe(2);
+    expect((await harness.db.transactions.get(txPendingId))?.title).toBe('Local Pending Title');
+    const pendingOutboxAfter = await harness.outboxManager.getPendingEntries(userId);
+    expect(pendingOutboxAfter).toHaveLength(1);
+    expect(pendingOutboxAfter[0].entityId).toBe(txPendingId);
+
+    // 2. Now prove differing non-empty optional text still flags genuine conflicts
+    await harness.db.transactions.put({
+      ...(await harness.db.transactions.get(txEmptyId))!,
+      note: 'Local divergent text',
+      notes: 'Local divergent text'
+    });
+    cloud.transactions.set(txEmptyId, {
+      ...cloud.transactions.get(txEmptyId)!,
+      note: 'Cloud divergent text'
+    });
+    cloud.transactions.set(txConflictId, {
+      ...cloud.transactions.get(txEmptyId)!,
+      id: txConflictId,
+      idempotency_key: 'k-conflict-live',
+      note: 'Cloud text'
+    });
+    await putBaseLocalTx(txConflictId, 'Conflict Tx', 'k-conflict-live', 2, 'Local text', 'Local text', null, iso2);
+
+    // Also test differing non-empty notes/phone on Account, Category, Lender, Borrowing, Repayment
+    await harness.db.accounts.put({
+      ...(await harness.db.accounts.get(accConflictId))!,
+      notes: 'Local different wallet note'
+    });
+    await harness.db.categories.put({
+      ...(await harness.db.categories.get(catConflictId))!,
+      color: '#FF0000'
+    });
+    await harness.db.lenders.put({
+      ...(await harness.db.lenders.get(lenderId))!,
+      phone: '9999999999'
+    });
+    await harness.db.borrowings.put({
+      ...(await harness.db.borrowings.get(borrowingId))!,
+      notes: 'Local borrowing divergence'
+    });
+    await harness.db.borrowingRepayments.put({
+      ...(await harness.db.borrowingRepayments.get(repaymentId))!,
+      notes: 'Local repayment divergence'
+    });
+
+    const catConflictRes = await harness.categoryReconciler.pullAndReconcile(userId);
+    expect(catConflictRes.conflictCount).toBe(1);
+    expect(catConflictRes.conflicts[0].categoryId).toBe(catConflictId);
+
+    const accConflictRes = await harness.accountReconciler.pullAndReconcile(userId);
+    expect(accConflictRes.conflictCount).toBe(1);
+    expect(accConflictRes.conflicts[0].accountId).toBe(accConflictId);
+
+    const borConflictRes = await harness.borrowingsReconciler.pullAndReconcile(userId);
+    expect(borConflictRes.lenders.conflictCount).toBe(1);
+    expect(borConflictRes.borrowings.conflictCount).toBe(1);
+    expect(borConflictRes.repayments.conflictCount).toBe(1);
+
+    // Soft-deleted tombstone with differing non-empty note at equal version still conflicts
+    await harness.db.transactions.put({
+      ...(await harness.db.transactions.get(txDeletedEmptyId))!,
+      note: 'Deleted note A',
+      notes: 'Deleted note A'
+    });
+    cloud.transactions.set(txDeletedEmptyId, {
+      ...cloud.transactions.get(txDeletedEmptyId)!,
+      note: 'Deleted note B'
+    });
+
+    const txConflictRes = await harness.transactionReconciler.pullAndReconcile(userId);
+    expect(txConflictRes.conflicts.map((c) => c.transactionId)).toEqual(
+      expect.arrayContaining([txEmptyId, txConflictId, txDeletedEmptyId, txOlderCloudId])
+    );
+    expect((await harness.db.transactions.get(txConflictId))?.note).toBe('Local text');
+  });
+
+  it('15. session_ready background sync completes cleanly without false version mismatch when local records have normalized or blank notes', async () => {
+    const accId = 'aaaa1501-1111-4111-8111-111111111111';
+    const catId = 'bbbb1501-1111-4111-8111-111111111111';
+    const txId = 'cccc1501-1111-4111-8111-111111111111';
+
+    cloud.accounts.set(accId, {
+      id: accId,
+      user_id: userId,
+      name: 'Personal Borrowings',
+      account_type: 'other',
+      opening_balance_paise: 0,
+      currency: 'INR',
+      system_tag: 'personal_borrowings',
+      is_archived: false,
+      version: 1,
+      created_at: iso1,
+      updated_at: iso1
+    });
+    cloud.categories.set(catId, {
+      id: catId,
+      user_id: userId,
+      name: 'Food & Dining Out',
+      type: 'expense',
+      icon: 'Utensils',
+      color: '#D9827C',
+      is_default: true,
+      is_archived: false,
+      version: 1,
+      created_at: iso1,
+      updated_at: iso1
+    });
+    cloud.transactions.set(txId, {
+      id: txId,
+      user_id: userId,
+      type: 'expense',
+      amount_paise: 12000,
+      currency: 'INR',
+      account_id: accId,
+      destination_account_id: null,
+      category_id: catId,
+      title: 'Lunch',
+      note: null,
+      transaction_date: iso1,
+      deleted_at: null,
+      version: 2,
+      device_id: 'dev-a',
+      idempotency_key: 'k-session-ready-1',
+      created_at: iso1,
+      updated_at: iso2
+    });
+
+    const harness = buildCoordinatorHarness(userId, cloud);
+    await harness.db.accounts.put({
+      id: accId,
+      userId,
+      name: 'Personal Borrowings',
+      type: 'other',
+      accountType: 'other',
+      openingBalancePaise: 0,
+      openingBalanceInPaise: 0,
+      currency: 'INR',
+      systemTag: 'personal_borrowings',
+      status: 'active',
+      isArchived: false,
+      version: 1,
+      createdAt: iso1,
+      updatedAt: iso1
+    });
+    await harness.db.categories.put({
+      id: catId,
+      userId,
+      name: 'Food & Dining Out',
+      type: 'expense',
+      icon: 'Utensils',
+      color: '#D9827C',
+      isDefault: true,
+      isSystem: true,
+      isArchived: false,
+      version: 1,
+      createdAt: iso1,
+      updatedAt: iso1
+    });
+    await harness.db.transactions.put({
+      id: txId,
+      userId,
+      type: 'expense',
+      amountPaise: 12000,
+      amountInPaise: 12000,
+      currency: 'INR',
+      accountId: accId,
+      categoryId: catId,
+      title: 'Lunch',
+      description: 'Lunch',
+      note: '',
+      notes: '',
+      transactionDate: iso1,
+      date: iso1,
+      deletedAt: null,
+      isDeleted: false,
+      version: 2,
+      idempotencyKey: 'k-session-ready-1',
+      status: 'cleared',
+      createdAt: iso1,
+      updatedAt: iso2
+    });
+
+    const bgRes = await harness.coordinator.run({ mode: 'background', retryFailed: false });
+    expect(bgRes.failedCount).toBe(0);
+    expect(bgRes.errors).toHaveLength(0);
+    expect(bgRes.transactions.conflictCount).toBe(0);
+  });
 });

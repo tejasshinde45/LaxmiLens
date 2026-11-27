@@ -233,13 +233,13 @@ export const NotificationPreferencesSection: React.FC = () => {
               className="flex items-center gap-2 rounded-[10px] border border-[#72B895]/30 bg-[#72B895]/10 px-3 py-2 text-xs text-[#72B895]"
             >
               <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              <span>Preferences saved locally and queued for cloud sync.</span>
+              <span>Preferences saved locally.</span>
             </div>
           )}
 
           <div className="flex items-center justify-between gap-3 pt-1 flex-wrap">
             <p className="text-[11px] text-[#858078]">
-              Changes apply locally and synchronize when you trigger Sync Cloud.
+              Changes save locally and synchronize automatically when connected.
             </p>
             <Button
               type="submit"

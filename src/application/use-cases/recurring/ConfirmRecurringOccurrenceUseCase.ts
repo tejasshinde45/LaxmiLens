@@ -21,6 +21,7 @@ import {
   validateUserId
 } from '@/domain/value-objects/Identifiers';
 import { UnauthorizedEntityAccessError } from '@/domain/errors/DomainErrors';
+import { normalizeOptionalText } from '@/utils/textNormalization';
 import {
   InvalidRecurrenceScheduleError,
   RecurringOccurrenceAlreadyResolvedError,
@@ -149,7 +150,9 @@ export class ConfirmRecurringOccurrenceUseCase {
           accountId: rule.accountId,
           categoryId: rule.categoryId,
           title: dto.overrideTitle?.trim() || rule.title,
-          note: dto.overrideNote !== undefined ? dto.overrideNote.trim() : rule.description,
+          note: normalizeOptionalText(
+            dto.overrideNote !== undefined ? dto.overrideNote : rule.description
+          ),
           transactionDate: toLocalTransactionIsoTimestamp(occ.occurrenceDate),
           idempotencyKey: occ.idempotencyKey
         });

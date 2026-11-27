@@ -11,6 +11,7 @@ import {
   RecordRepaymentFormValues
 } from '../schemas/borrowingSchemas';
 import { OFFLINE_QUERY_STALE_TIME_MS } from '@/features/sync/utils/pendingOutboxQuery';
+import { normalizeOptionalText } from '@/utils/textNormalization';
 
 const emptySummary: BorrowingsSummaryDTO = {
   totalOutstandingPaise: 0,
@@ -68,13 +69,13 @@ export function useBorrowings() {
       return repos.addBorrowingUseCase.execute({
         userId: user.id,
         lenderName: values.lenderName,
-        lenderPhone: values.lenderPhone,
-        lenderEmail: values.lenderEmail,
+        lenderPhone: normalizeOptionalText(values.lenderPhone),
+        lenderEmail: normalizeOptionalText(values.lenderEmail),
         amountPaise,
         borrowingDate: values.borrowingDate,
         dueDate: values.dueDate || null,
         receivingAccountId: values.receivingAccountId,
-        notes: values.notes
+        notes: normalizeOptionalText(values.notes)
       });
     },
     onSuccess: (data) => {
@@ -87,7 +88,7 @@ export function useBorrowings() {
       queryClient.invalidateQueries({ queryKey: ['pendingOutboxTxIds', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['pendingOutboxEntries', user?.id] });
       toast.success(
-        `Borrowing of ${data.amountFormatted} from ${data.lenderName} recorded successfully.`
+        `Borrowing of ${data.amountFormatted} from ${data.lenderName} saved locally.`
       );
     },
     onError: (err: Error) => {
@@ -110,7 +111,7 @@ export function useBorrowings() {
         amountPaise,
         repaymentDate: values.repaymentDate,
         paymentAccountId: values.paymentAccountId,
-        notes: values.notes
+        notes: normalizeOptionalText(values.notes)
       });
     },
     onSuccess: (data) => {
@@ -123,7 +124,7 @@ export function useBorrowings() {
       queryClient.invalidateQueries({ queryKey: ['pendingOutboxTxIds', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['pendingOutboxEntries', user?.id] });
       toast.success(
-        `Repayment of ${data.amountFormatted} to ${data.lenderName} recorded successfully.`
+        `Repayment of ${data.amountFormatted} to ${data.lenderName} saved locally.`
       );
     },
     onError: (err: Error) => {

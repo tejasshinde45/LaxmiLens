@@ -289,9 +289,11 @@ describe('DashboardPage Data Integration Feature', () => {
     );
 
     // Net worth should display ₹72,750.00 instead of ₹0.00
-    expect(screen.getByText('Net Worth')).toBeInTheDocument();
-    expect(screen.getByText('₹72,750.00')).toBeInTheDocument();
-    expect(screen.getByText('Derived across 2 active accounts')).toBeInTheDocument();
+    const netWorthTitle = screen.getByText('Net Worth');
+    expect(netWorthTitle).toBeInTheDocument();
+    const netWorthCard = netWorthTitle.closest('.space-y-2') as HTMLElement;
+    expect(within(netWorthCard).getByText('₹72,750.00')).toBeInTheDocument();
+    expect(within(netWorthCard).getByText('Derived across 2 active accounts')).toBeInTheDocument();
   });
 
   it('displays accurate Monthly Inflow and Monthly Outflow strictly for current month', () => {
@@ -408,17 +410,14 @@ describe('DashboardPage Data Integration Feature', () => {
     });
   });
 
-  it('triggers syncNow when Sync Cloud button is clicked', () => {
+  it('omits normal-workflow Sync Cloud / Sync Now buttons now that AutoSyncScheduler runs automatically', () => {
     render(
       <MemoryRouter>
         <DashboardPage />
       </MemoryRouter>
     );
 
-    const syncButton = screen.getByRole('button', { name: /Sync Cloud/i });
-    fireEvent.click(syncButton);
-
-    expect(mockSyncNow).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: /Sync Cloud|Sync Now/i })).not.toBeInTheDocument();
   });
 
   it('filters out previous month transactions from monthly inflow/outflow while keeping them in recent list', () => {
@@ -478,6 +477,241 @@ describe('DashboardPage Data Integration Feature', () => {
 
     // But Recent Transactions still includes the active transactions
     expect(screen.getByText('Monthly Salary')).toBeInTheDocument();
+  });
+
+  it('omits Security & Storage and Dev Recovery UI and renders all 4 summary cards equally across the desktop row', () => {
+    render(
+      <MemoryRouter>
+        <DashboardPage />
+      </MemoryRouter>
+    );
+
+    // Security & Storage card and internal IndexedDB copy must remain hidden
+    expect(screen.queryByText('Security & Storage')).not.toBeInTheDocument();
+    expect(screen.queryByText('IndexedDB Active')).not.toBeInTheDocument();
+    expect(screen.queryByText('Local & cloud ledger in sync')).not.toBeInTheDocument();
+
+    // Developer recovery dialog/panel must remain hidden
+    expect(screen.queryByText(/Controlled Account Lifecycle Recovery/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /dev recovery/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/DEV ONLY/i)).not.toBeInTheDocument();
+
+    // Desktop summary grid displays all 4 cards equally with no empty slot
+    const netWorthTitle = screen.getByText('Net Worth');
+    const summaryGrid = netWorthTitle.closest('.grid');
+    expect(summaryGrid).not.toBeNull();
+    expect(summaryGrid).toHaveClass('grid-cols-1', 'sm:grid-cols-2', 'lg:grid-cols-4', 'gap-4');
+    expect(summaryGrid?.children).toHaveLength(4);
+
+    expect(screen.getByText('Monthly Inflow')).toBeInTheDocument();
+    expect(screen.getByText('Monthly Outflow')).toBeInTheDocument();
+    expect(screen.getByText('Cash & Bank Balance')).toBeInTheDocument();
+  });
+
+  it('calculates Cash & Bank Balance from active cash and bank accounts while excluding liabilities and archived accounts', async () => {
+    const { GetAccountsWithBalanceUseCase } = await import(
+      '@/application/use-cases/accounts/GetAccountsWithBalanceUseCase'
+    );
+
+    const activeBank = new Account({
+      id: createAccountId('10000000-0000-4000-8000-000000000001'),
+      userId: createUserId(userId),
+      name: 'HDFC Salary',
+      accountType: 'bank',
+      openingBalancePaise: 5000000, // ₹50,000.00
+      isArchived: false
+    });
+    const activeSavings = new Account({
+      id: createAccountId('10000000-0000-4000-8000-000000000002'),
+      userId: createUserId(userId),
+      name: 'SBI Savings',
+      accountType: 'savings',
+      openingBalancePaise: 2500000, // ₹25,000.00
+      isArchived: false
+    });
+    const activeCash = new Account({
+      id: createAccountId('10000000-0000-4000-8000-000000000003'),
+      userId: createUserId(userId),
+      name: 'Physical Cash',
+      accountType: 'cash',
+      openingBalancePaise: 500000, // ₹5,000.00
+      isArchived: false
+    });
+    const creditCard = new Account({
+      id: createAccountId('10000000-0000-4000-8000-000000000004'),
+      userId: createUserId(userId),
+      name: 'Credit Card',
+      accountType: 'credit_card',
+      openingBalancePaise: -1500000, // -₹15,000.00 (excluded)
+      isArchived: false
+    });
+    const personalBorrowings = new Account({
+      id: createAccountId('10000000-0000-4000-8000-000000000005'),
+      userId: createUserId(userId),
+      name: 'Personal Borrowings',
+      accountType: 'other',
+      systemTag: 'personal_borrowings',
+      openingBalancePaise: -1000000, // -₹10,000.00 (excluded)
+      isArchived: false
+    });
+    const loanLiability = new Account({
+      id: createAccountId('10000000-0000-4000-8000-000000000006'),
+      userId: createUserId(userId),
+      name: 'Car Loan',
+      accountType: 'other',
+      openingBalancePaise: 4000000, // excluded non-cash/bank account
+      isArchived: false
+    });
+    const digitalWallet = new Account({
+      id: createAccountId('10000000-0000-4000-8000-000000000007'),
+      userId: createUserId(userId),
+      name: 'Paytm Wallet',
+      accountType: 'wallet',
+      openingBalancePaise: 200000, // ₹2,000.00 (excluded non-cash/bank)
+      isArchived: false
+    });
+    const archivedBank = new Account({
+      id: createAccountId('10000000-0000-4000-8000-000000000008'),
+      userId: createUserId(userId),
+      name: 'Old Closed Bank',
+      accountType: 'bank',
+      openingBalancePaise: 9000000, // ₹90,000.00 (excluded archived)
+      isArchived: true
+    });
+
+    const accountsStore = [
+      activeBank,
+      activeSavings,
+      activeCash,
+      creditCard,
+      personalBorrowings,
+      loanLiability,
+      digitalWallet,
+      archivedBank
+    ];
+    const txStore: Transaction[] = [
+      new Transaction({
+        id: createTransactionId('20000000-0000-4000-8000-000000000001'),
+        userId: createUserId(userId),
+        type: 'expense',
+        amountPaise: 100000, // -₹1,000.00 on Physical Cash -> ₹4,000.00
+        accountId: activeCash.id,
+        title: 'Cash Groceries',
+        transactionDate: now,
+        idempotencyKey: 'idem-cash-1'
+      })
+    ];
+
+    const fakeAccountRepo: AccountRepository = {
+      findById: async (id) => accountsStore.find((a) => a.id === id) ?? null,
+      findByUserId: async () => accountsStore,
+      save: async () => {},
+      update: async () => {},
+      archive: async () => {}
+    };
+    const fakeTxRepo: TransactionRepository = {
+      findById: async () => null,
+      findByIdempotencyKey: async () => null,
+      findMany: async () => txStore,
+      save: async () => {},
+      update: async () => {},
+      softDelete: async () => {}
+    };
+
+    const accountsUseCase = new GetAccountsWithBalanceUseCase(fakeAccountRepo, fakeTxRepo);
+    const derivedAccounts = await accountsUseCase.execute(userId, true);
+    const computedSummary = useAccountsModule.computeCashAndBankBalance(derivedAccounts);
+
+    // Expect ₹50,000 (bank) + ₹25,000 (savings) + ₹4,000 (cash after expense) = ₹79,000.00 across 3 accounts
+    expect(computedSummary.balancePaise).toBe(7900000);
+    expect(computedSummary.formattedBalance).toBe('₹79,000.00');
+    expect(computedSummary.accountCount).toBe(3);
+
+    vi.spyOn(useAccountsModule, 'useAccounts').mockReturnValue({
+      accounts: derivedAccounts,
+      summary: {
+        totalNetWorthPaise: 9600000,
+        totalNetWorthFormatted: '₹96,000.00',
+        totalAssetsPaise: 12100000,
+        totalAssetsFormatted: '₹1,21,000.00',
+        totalLiabilitiesPaise: 2500000,
+        totalLiabilitiesFormatted: '₹25,000.00',
+        activeAccountsCount: 7,
+        archivedAccountsCount: 1
+      },
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+      createAccount: vi.fn(),
+      isCreating: false,
+      updateAccount: vi.fn(),
+      isUpdating: false,
+      archiveAccount: vi.fn(),
+      isArchiving: false,
+      restoreAccount: vi.fn(),
+      isRestoring: false
+    });
+
+    const { rerender } = render(
+      <MemoryRouter>
+        <DashboardPage />
+      </MemoryRouter>
+    );
+
+    const cardEl = screen.getByText('Cash & Bank Balance').closest('.space-y-2') as HTMLElement;
+    expect(within(cardEl).getByText('₹79,000.00')).toBeInTheDocument();
+    expect(within(cardEl).getByText('Across 3 active cash & bank accounts')).toBeInTheDocument();
+
+    // Add bank income (+₹11,000.00) and recompute via GetAccountsWithBalanceUseCase -> ₹90,000.00
+    txStore.push(
+      new Transaction({
+        id: createTransactionId('20000000-0000-4000-8000-000000000002'),
+        userId: createUserId(userId),
+        type: 'income',
+        amountPaise: 1100000,
+        accountId: activeBank.id,
+        title: 'Freelance Payout',
+        transactionDate: now,
+        idempotencyKey: 'idem-bank-2'
+      })
+    );
+    const updatedDerivedAccounts = await accountsUseCase.execute(userId, true);
+
+    vi.spyOn(useAccountsModule, 'useAccounts').mockReturnValue({
+      accounts: updatedDerivedAccounts,
+      summary: {
+        totalNetWorthPaise: 10700000,
+        totalNetWorthFormatted: '₹1,07,000.00',
+        totalAssetsPaise: 13200000,
+        totalAssetsFormatted: '₹1,32,000.00',
+        totalLiabilitiesPaise: 2500000,
+        totalLiabilitiesFormatted: '₹25,000.00',
+        activeAccountsCount: 7,
+        archivedAccountsCount: 1
+      },
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+      createAccount: vi.fn(),
+      isCreating: false,
+      updateAccount: vi.fn(),
+      isUpdating: false,
+      archiveAccount: vi.fn(),
+      isArchiving: false,
+      restoreAccount: vi.fn(),
+      isRestoring: false
+    });
+
+    rerender(
+      <MemoryRouter>
+        <DashboardPage />
+      </MemoryRouter>
+    );
+
+    const updatedCardEl = screen.getByText('Cash & Bank Balance').closest('.space-y-2') as HTMLElement;
+    expect(within(updatedCardEl).getByText('₹90,000.00')).toBeInTheDocument();
   });
 });
 

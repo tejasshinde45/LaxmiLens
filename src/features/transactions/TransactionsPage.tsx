@@ -1,7 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import {
   Plus,
-  RefreshCw,
   AlertCircle
 } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
@@ -11,7 +10,6 @@ import { Card } from '@/components/ui/Card';
 import { useTransactions, computeTransactionSummary } from './hooks/useTransactions';
 import { useAccounts } from '@/features/accounts/hooks/useAccounts';
 import { useCategories } from '@/features/categories/hooks/useCategories';
-import { useAccountSync } from '@/features/accounts/hooks/useAccountSync';
 import { TransactionSummaryMetrics } from './components/TransactionSummaryMetrics';
 import {
   TransactionFilters,
@@ -48,7 +46,6 @@ export const TransactionsPage: React.FC = () => {
 
   const { accounts, isLoading: isAccountsLoading } = useAccounts();
   const { categories, isLoading: isCategoriesLoading } = useCategories();
-  const { syncNow, isSyncing, pendingCount, isAuthenticated } = useAccountSync();
 
   // Filter & Search State
   const [searchQuery, setSearchQuery] = useState('');
@@ -187,26 +184,6 @@ export const TransactionsPage: React.FC = () => {
         }
         actions={
           <div className="flex items-center gap-2">
-            {isAuthenticated && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => syncNow()}
-                disabled={isSyncing}
-                className="relative"
-              >
-                <RefreshCw
-                  className={`h-3.5 w-3.5 mr-1.5 ${isSyncing ? 'animate-spin text-[#D6AD60]' : ''}`}
-                />
-                {isSyncing ? 'Syncing...' : 'Sync Cloud'}
-                {pendingCount > 0 && !isSyncing && (
-                  <span className="ml-1.5 rounded-full bg-[#E4B66D] px-1.5 py-0.2 text-[10px] font-bold text-[#101010]">
-                    {pendingCount}
-                  </span>
-                )}
-              </Button>
-            )}
-
             <Button
               variant="primary"
               size="sm"

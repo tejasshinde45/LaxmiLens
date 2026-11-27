@@ -5,12 +5,16 @@ import { AuthLoadingScreen } from '@/features/auth/components/AuthLoadingScreen'
 import { getSafeRedirectUrl } from '@/features/auth/utils/redirects';
 
 export const GuestRoute: React.FC = () => {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, isPasswordRecovery } = useAuth();
   const location = useLocation();
   const [searchParams] = useSearchParams();
 
   if (isLoading) {
     return <AuthLoadingScreen message="Checking session..." />;
+  }
+
+  if (isPasswordRecovery) {
+    return <Navigate to="/reset-password" replace />;
   }
 
   if (isAuthenticated) {

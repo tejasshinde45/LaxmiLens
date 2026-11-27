@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { RecurringReminderDTO } from '@/application/dto/RecurringDTO';
 import { formatLocalDateDisplay } from '../schemas/recurringSchemas';
+import { normalizeOptionalText } from '@/utils/textNormalization';
 
 export interface ConfirmOccurrenceModalProps {
   reminder: RecurringReminderDTO | null;
@@ -55,7 +56,10 @@ export const ConfirmOccurrenceModal: React.FC<ConfirmOccurrenceModalProps> = ({
         occurrenceDate: reminder.occurrenceDate,
         occurrenceId: reminder.occurrenceId,
         overrideTitle: title.trim() || reminder.title,
-        overrideNote: note.trim()
+        // Preserve explicit empty string only when clearing an inherited schedule description.
+        overrideNote: reminder.description
+          ? (normalizeOptionalText(note) ?? '')
+          : normalizeOptionalText(note)
       });
       onClose();
     } catch (err) {

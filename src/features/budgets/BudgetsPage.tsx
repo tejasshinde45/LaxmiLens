@@ -2,7 +2,6 @@ import React, { useMemo, useState } from 'react';
 import {
   PiggyBank,
   Plus,
-  RefreshCw,
   AlertCircle,
   ChevronLeft,
   ChevronRight,
@@ -17,8 +16,6 @@ import { EmptyState } from '@/components/feedback/EmptyState';
 import { BUDGET_PERIOD_REGEX } from '@/domain/entities/Budget';
 import { BudgetOverviewItemDTO } from '@/application/dto/BudgetDTO';
 import { useCategories } from '@/features/categories/hooks/useCategories';
-import { useAccountSync } from '@/features/accounts/hooks/useAccountSync';
-import { cn } from '@/utils/cn';
 import { useBudgets } from './hooks/useBudgets';
 import {
   CreateBudgetFormValues,
@@ -55,7 +52,6 @@ export const BudgetsPage: React.FC = () => {
   } = useBudgets(selectedPeriod);
 
   const { categories, isLoading: isCategoriesLoading } = useCategories();
-  const { syncNow, isSyncing, pendingCount, isAuthenticated } = useAccountSync();
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [budgetToEdit, setBudgetToEdit] = useState<BudgetOverviewItemDTO | null>(null);
@@ -102,26 +98,6 @@ export const BudgetsPage: React.FC = () => {
         }
         actions={
           <div className="flex items-center gap-2 flex-wrap">
-            {isAuthenticated && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => syncNow()}
-                disabled={isSyncing}
-                title="Synchronize local budget and ledger updates with Supabase cloud"
-              >
-                <RefreshCw
-                  className={cn('h-3.5 w-3.5 mr-1.5', isSyncing && 'animate-spin text-[#D6AD60]')}
-                />
-                {isSyncing ? 'Syncing...' : 'Sync Cloud'}
-                {pendingCount > 0 && !isSyncing && (
-                  <Badge variant="gold" size="sm" className="ml-1.5 px-1.5 py-0">
-                    {pendingCount}
-                  </Badge>
-                )}
-              </Button>
-            )}
-
             <Button
               variant="primary"
               size="sm"

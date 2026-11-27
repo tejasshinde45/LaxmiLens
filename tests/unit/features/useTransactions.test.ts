@@ -279,6 +279,30 @@ describe('useTransactions Application Integration & Precision (Phase 2D.7.4.1)',
       });
     });
 
+    it('normalizes cleared or empty optional notes to undefined locally and null in outbox', async () => {
+      const created = await createUseCase.execute({
+        userId,
+        type: 'expense',
+        amountPaise: 12000,
+        accountId: 'acc-bank-1',
+        categoryId: 'cat-food-1',
+        title: 'Dinner',
+        note: 'Initial note',
+        transactionDate: '2026-11-23T20:00:00.000Z'
+      });
+      expect(transactionStorage.get(created.id)?.note).toBe('Initial note');
+
+      const cleared = await updateUseCase.execute({
+        id: created.id,
+        userId,
+        note: '   '
+      });
+
+      expect(cleared.note).toBeUndefined();
+      expect(transactionStorage.get(created.id)?.note).toBeUndefined();
+      expect(outboxStorage[1].payload.note).toBeNull();
+    });
+
     it('performs soft-delete, increments version, and leaves audit trail', async () => {
       const initial = await createUseCase.execute({
         userId,

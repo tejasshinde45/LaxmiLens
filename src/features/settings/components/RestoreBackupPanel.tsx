@@ -225,11 +225,22 @@ export const RestoreBackupPanel: React.FC<RestoreBackupPanelProps> = ({
         {lastRestoreResult && !restoreError && (
           <div
             role="status"
-            className="rounded-[10px] border border-[#72B895]/30 bg-[#72B895]/10 px-3 py-2.5 text-xs text-[#72B895] space-y-1"
+            className="rounded-[10px] border border-[#72B895]/30 bg-[#72B895]/10 px-3 py-2.5 text-xs text-[#72B895] space-y-2"
           >
-            <div className="flex items-center gap-2 font-medium">
-              <CheckCircle2 className="h-4 w-4 shrink-0" />
-              <span>Local database restored successfully</span>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 font-medium">
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                <span>Local database restored successfully</span>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onClearStatus}
+                data-testid="dismiss-restore-status-btn"
+              >
+                Done
+              </Button>
             </div>
             <p className="text-[11px] text-[#B9B4AA]">
               Mode: {lastRestoreResult.mode === 'empty' ? 'Empty Restore' : 'Replace'} • Restored{' '}

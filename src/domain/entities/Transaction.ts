@@ -5,6 +5,7 @@ import {
   InvalidTransactionAmountError,
   MissingAccountError
 } from '../errors/DomainErrors';
+import { normalizeOptionalText } from '@/utils/textNormalization';
 
 export type TransactionType = 'income' | 'expense' | 'transfer';
 export type TransactionStatus = 'cleared' | 'pending' | 'reconciled';
@@ -101,7 +102,7 @@ export class Transaction {
     this.destinationAccountId = resolvedDestination;
     this.categoryId = props.categoryId;
     this.title = resolvedTitle;
-    this.note = (props.note ?? props.notes)?.trim();
+    this.note = normalizeOptionalText(props.note ?? props.notes);
     this.transactionDate = props.transactionDate ?? props.date ?? now;
     this.deletedAt = props.deletedAt ?? (props.isDeleted ? now : null);
     this.version = props.version ?? 1;

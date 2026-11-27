@@ -283,8 +283,7 @@ describe('Phase 8 UI: RecurringPage & Reminder Lifecycles', () => {
       );
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /Sync Cloud/i }));
-    expect(mockSyncNow).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: /Sync Cloud|Sync Now/i })).not.toBeInTheDocument();
   });
 
   it('opens New Schedule modal and submits validated schedule form', async () => {

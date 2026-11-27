@@ -625,4 +625,41 @@ describe('Personal Borrowings Application Use Cases', () => {
       })
     ).rejects.toThrow(RepaymentExceedsOutstandingBalanceError);
   });
+
+  it('10. normalizes empty and whitespace optional fields to undefined locally and null in outbox', async () => {
+    const borrowing = await addBorrowingUseCase.execute({
+      userId,
+      lenderName: 'Meera',
+      lenderPhone: '',
+      lenderEmail: '   ',
+      amountPaise: 50000,
+      receivingAccountId: bankAccountId,
+      notes: '  \t '
+    });
+
+    const lender = await lenderRepo.findById(borrowing.lenderId, userId);
+    expect(lender?.phone).toBeUndefined();
+    expect(lender?.email).toBeUndefined();
+    expect(lender?.notes).toBeUndefined();
+
+    const storedBorrowing = await borrowingRepo.findById(borrowing.id, userId);
+    expect(storedBorrowing?.notes).toBeUndefined();
+
+    const repayment = await recordRepaymentUseCase.execute({
+      userId,
+      borrowingId: borrowing.id,
+      amountPaise: 25000,
+      paymentAccountId: bankAccountId,
+      notes: '   '
+    });
+    expect(repayment.notes).toBeUndefined();
+
+    const lenderOutbox = syncPort.queue.find((e) => e.entity === 'lenders');
+    const borOutbox = syncPort.queue.find((e) => e.entity === 'borrowings');
+    const repOutbox = syncPort.queue.find((e) => e.entity === 'borrowing_repayments');
+    expect(lenderOutbox?.payload.phone).toBeNull();
+    expect(lenderOutbox?.payload.email).toBeNull();
+    expect(borOutbox?.payload.notes).toBeNull();
+    expect(repOutbox?.payload.notes).toBeNull();
+  });
 });

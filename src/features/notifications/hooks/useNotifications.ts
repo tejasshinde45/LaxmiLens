@@ -208,7 +208,7 @@ export function useNotifications(
         invalidateNotificationState();
         if (res.updatedCount > 0) {
           toast.success(
-            `Marked ${res.updatedCount} notification${res.updatedCount > 1 ? 's' : ''} as read.`
+            `Marked ${res.updatedCount} notification${res.updatedCount > 1 ? 's' : ''} as read locally.`
           );
         }
       },
@@ -247,7 +247,7 @@ export function useNotifications(
       onSuccess: (dismissed) => {
         if (dismissed) {
           invalidateNotificationState();
-          toast.success('Notification dismissed.');
+          toast.success('Notification dismissal saved locally.');
         }
       },
       onError: (err) => {

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, RefreshCw, AlertCircle, ShieldCheck } from 'lucide-react';
+import { Plus, AlertCircle, ShieldCheck } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -8,8 +8,6 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { RecurringReminderDTO, RecurringRuleResponseDTO } from '@/application/dto/RecurringDTO';
 import { useAccounts } from '@/features/accounts/hooks/useAccounts';
 import { useCategories } from '@/features/categories/hooks/useCategories';
-import { useAccountSync } from '@/features/accounts/hooks/useAccountSync';
-import { cn } from '@/utils/cn';
 import { useRecurring } from './hooks/useRecurring';
 import { RecurringRuleFormValues } from './schemas/recurringSchemas';
 import { RecurringSummaryMetrics } from './components/RecurringSummaryMetrics';
@@ -49,7 +47,6 @@ export const RecurringPage: React.FC = () => {
 
   const { accounts, isLoading: isAccountsLoading } = useAccounts();
   const { categories, isLoading: isCategoriesLoading } = useCategories();
-  const { syncNow, isSyncing, pendingCount, isAuthenticated } = useAccountSync();
 
   const [activeTab, setActiveTab] = useState<'reminders' | 'schedules'>('reminders');
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -100,26 +97,6 @@ export const RecurringPage: React.FC = () => {
         }
         actions={
           <div className="flex items-center gap-2 flex-wrap">
-            {isAuthenticated && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => syncNow()}
-                disabled={isSyncing}
-                title="Synchronize recurring schedules and ledger updates with Supabase cloud"
-              >
-                <RefreshCw
-                  className={cn('h-3.5 w-3.5 mr-1.5', isSyncing && 'animate-spin text-[#D6AD60]')}
-                />
-                {isSyncing ? 'Syncing...' : 'Sync Cloud'}
-                {pendingCount > 0 && !isSyncing && (
-                  <Badge variant="gold" size="sm" className="ml-1.5 px-1.5 py-0">
-                    {pendingCount}
-                  </Badge>
-                )}
-              </Button>
-            )}
-
             <Button
               variant="primary"
               size="sm"

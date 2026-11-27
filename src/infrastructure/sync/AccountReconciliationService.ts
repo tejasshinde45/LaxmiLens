@@ -14,6 +14,7 @@ import {
   CloudAccountRow
 } from '@/infrastructure/database/cloud/mappers/AccountMapper';
 import { ISupabaseAccountRepository } from '@/infrastructure/database/cloud/repositories/SupabaseAccountRepository';
+import { normalizeOptionalText } from '@/utils/textNormalization';
 import { SyncAuthError } from './errors/SyncErrors';
 
 export interface AccountPullConflict {
@@ -62,10 +63,10 @@ function areAccountRecordsEquivalent(
     localType === cloud.account_type &&
     localOpening === cloud.opening_balance_paise &&
     (local.currency || 'INR') === (cloud.currency || 'INR') &&
-    (local.institutionName ?? undefined) === (cloud.institution_name ?? undefined) &&
-    (local.color ?? undefined) === (cloud.color ?? undefined) &&
-    (local.icon ?? undefined) === (cloud.icon ?? undefined) &&
-    (local.notes ?? undefined) === (cloud.notes ?? undefined) &&
+    normalizeOptionalText(local.institutionName) === normalizeOptionalText(cloud.institution_name) &&
+    normalizeOptionalText(local.color) === normalizeOptionalText(cloud.color) &&
+    normalizeOptionalText(local.icon) === normalizeOptionalText(cloud.icon) &&
+    normalizeOptionalText(local.notes) === normalizeOptionalText(cloud.notes) &&
     (local.systemTag ?? null) === (cloud.system_tag ?? null) &&
     Boolean(localArchived) === Boolean(cloud.is_archived)
   );

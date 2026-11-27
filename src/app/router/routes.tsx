@@ -117,6 +117,14 @@ export const appRoutes: RouteObject[] = [
         }),
         errorElement: <RouteErrorFallback homePath="/login" homeLabel="Back to Sign In" />
       },
+      {
+        path: '/reset-password',
+        element: withRouteSuspense(ResetPasswordPage, {
+          fullScreen: true,
+          label: 'Loading password reset...'
+        }),
+        errorElement: <RouteErrorFallback homePath="/login" homeLabel="Back to Sign In" />
+      },
 
       // Guest-only Authentication Routes
       {
@@ -139,13 +147,6 @@ export const appRoutes: RouteObject[] = [
             element: withRouteSuspense(ForgotPasswordPage, {
               fullScreen: true,
               label: 'Loading recovery...'
-            })
-          },
-          {
-            path: '/reset-password',
-            element: withRouteSuspense(ResetPasswordPage, {
-              fullScreen: true,
-              label: 'Loading password reset...'
             })
           }
         ]

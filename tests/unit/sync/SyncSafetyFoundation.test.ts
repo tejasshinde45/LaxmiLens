@@ -401,6 +401,16 @@ describe('Synchronization Safety Foundation', () => {
     expect(
       inferSyncErrorClassificationFromMessage('RLS permission denied (42501)').disposition
     ).toBe('permanent');
+    expect(
+      inferSyncErrorClassificationFromMessage(
+        "Version mismatch on account 'acc-1': cloud version is 2, expected previous version was 1."
+      )
+    ).toMatchObject({
+      errorClass: 'conflict',
+      disposition: 'permanent',
+      retryable: false,
+      errorCategory: 'conflict'
+    });
 
     const accId = makeUuid(2);
     const { outboxManager, getRecords } = createInMemoryOutboxEnv([

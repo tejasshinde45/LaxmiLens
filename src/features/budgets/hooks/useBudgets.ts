@@ -216,7 +216,7 @@ export function useBudgets(
       },
       onSuccess: (created) => {
         invalidateBudgetState();
-        toast.success(`Budget of ${created.limitFormatted} created for ${created.period}`);
+        toast.success(`Budget of ${created.limitFormatted} for ${created.period} saved locally`);
       },
       onError: (err) => {
         toast.error(err.message || 'Could not create budget.');
@@ -251,7 +251,7 @@ export function useBudgets(
       },
       onSuccess: (updated) => {
         invalidateBudgetState();
-        toast.success(`Budget limit updated to ${updated.limitFormatted}`);
+        toast.success(`Budget limit update to ${updated.limitFormatted} saved locally`);
       },
       onError: (err) => {
         toast.error(err.message || 'Could not update budget.');
@@ -279,7 +279,7 @@ export function useBudgets(
       },
       onSuccess: () => {
         invalidateBudgetState();
-        toast.success('Budget deleted. Historical transactions remain preserved.');
+        toast.success('Budget deletion saved locally. Historical transactions remain preserved.');
       },
       onError: (err) => {
         toast.error(err.message || 'Could not delete budget.');

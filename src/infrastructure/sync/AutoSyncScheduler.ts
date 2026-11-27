@@ -159,6 +159,8 @@ export class AutoSyncScheduler {
   private started = false;
   private inFlightSyncPromise: Promise<UnifiedSyncResult | null> | null = null;
   private pendingFollowUpSync = false;
+  private postRestoreHoldCount = 0;
+  private pendingPostRestoreSync = false;
   private transientPullAttempts = 0;
   private lastSyncAttemptAtMs: number | null = null;
 
@@ -294,8 +296,11 @@ export class AutoSyncScheduler {
       return;
     }
 
-    if (exclusiveActive) {
+    if (exclusiveActive || this.postRestoreHoldCount > 0) {
       this.pendingFollowUpSync = true;
+      if (this.postRestoreHoldCount > 0) {
+        this.pendingPostRestoreSync = true;
+      }
       this.clearDebounceTimer();
       this.clearRetryTimer();
       return;
@@ -317,6 +322,11 @@ export class AutoSyncScheduler {
     this.updateState({ authPaused: false, lastError: null });
 
     if (!this.started || !this.lifecycleAdapter.isOnline()) {
+      return;
+    }
+
+    if (this.postRestoreHoldCount > 0) {
+      this.pendingPostRestoreSync = true;
       return;
     }
 
@@ -424,10 +434,146 @@ export class AutoSyncScheduler {
         status: online ? 'saved_locally' : 'waiting_for_internet'
       });
 
+      if (this.postRestoreHoldCount > 0) {
+        if (pendingCount > 0) {
+          this.pendingPostRestoreSync = true;
+        }
+        return;
+      }
+
       if (this.started && online && pendingCount > 0 && !this.coordinator.isOperationInProgress()) {
         this.scheduleDebouncedSync('post_exclusive');
       }
     }
+  }
+
+  /**
+   * Returns true when restore completion UI is currently holding background sync.
+   */
+  public isPostRestoreSyncHeld(): boolean {
+    return this.postRestoreHoldCount > 0;
+  }
+
+  /**
+   * Acquires a restore confirmation hold so restored outbox entries remain saved locally
+   * without starting automatic synchronization until the user dismisses confirmation.
+   */
+  public holdPostRestoreSync(): void {
+    if (this.disposed || !this.isSessionValid()) {
+      return;
+    }
+    this.postRestoreHoldCount += 1;
+    this.pendingPostRestoreSync = true;
+    this.clearPostExclusiveTimer();
+    this.clearDebounceTimer();
+  }
+
+  /**
+   * Releases a prior restore confirmation hold and schedules background synchronization
+   * once pending restored entries are ready and confirmed.
+   */
+  public releasePostRestoreSync(): void {
+    if (this.postRestoreHoldCount > 0) {
+      this.postRestoreHoldCount -= 1;
+    }
+    if (this.disposed || !this.started || !this.isSessionValid() || this.postRestoreHoldCount > 0) {
+      return;
+    }
+    void this.releasePostRestoreAndScheduleIfReady();
+  }
+
+  private async releasePostRestoreAndScheduleIfReady(): Promise<void> {
+    const pendingCount = await this.getPendingCountSafely();
+    if (
+      this.disposed ||
+      !this.started ||
+      !this.isSessionValid() ||
+      this.postRestoreHoldCount > 0
+    ) {
+      return;
+    }
+
+    const online = this.lifecycleAdapter.isOnline();
+    if (pendingCount > 0 || this.pendingPostRestoreSync || this.pendingFollowUpSync) {
+      this.updateState({
+        pendingCount,
+        isOnline: online,
+        status: online ? 'saved_locally' : 'waiting_for_internet'
+      });
+    }
+
+    const shouldSync = pendingCount > 0 || this.pendingFollowUpSync;
+    this.pendingPostRestoreSync = false;
+
+    if (shouldSync && online && !this.coordinator.isOperationInProgress()) {
+      this.pendingFollowUpSync = false;
+      this.clearPostExclusiveTimer();
+      this.postExclusiveTimer = this.timerProvider.setTimeout(() => {
+        this.postExclusiveTimer = null;
+        void this.triggerSync('post_exclusive');
+      }, this.debounceMs);
+    }
+  }
+
+  /**
+   * Explicitly retries previously failed or paused synchronization entries without
+   * discarding any locally saved outbox records.
+   */
+  public async retryNow(): Promise<UnifiedSyncResult | null> {
+    if (this.disposed || !this.isSessionValid()) {
+      return null;
+    }
+
+    if (!this.lifecycleAdapter.isOnline()) {
+      this.clearRetryTimer();
+      this.updateState({
+        isOnline: false,
+        nextRetryAtMs: null,
+        status: 'waiting_for_internet'
+      });
+      return null;
+    }
+
+    if (this.inFlightSyncPromise) {
+      return this.inFlightSyncPromise;
+    }
+
+    if (this.coordinator.isOperationInProgress()) {
+      this.pendingFollowUpSync = true;
+      return null;
+    }
+
+    this.clearRetryTimer();
+    this.transientPullAttempts = 0;
+    this.lastSyncAttemptAtMs = this.timerProvider.nowMs();
+
+    const runPromise = (async (): Promise<UnifiedSyncResult | null> => {
+      try {
+        return await this.coordinator.retryFailed();
+      } catch (error) {
+        if (!this.disposed && this.isSessionValid()) {
+          await this.handleUnexpectedCoordinatorFailure(error);
+        }
+        return null;
+      } finally {
+        this.inFlightSyncPromise = null;
+        if (
+          !this.disposed &&
+          this.started &&
+          this.isSessionValid() &&
+          this.pendingFollowUpSync &&
+          this.postRestoreHoldCount === 0
+        ) {
+          this.pendingFollowUpSync = false;
+          if (this.lifecycleAdapter.isOnline() && !this.coordinator.isOperationInProgress()) {
+            this.scheduleDebouncedSync('local_write');
+          }
+        }
+      }
+    })();
+
+    this.inFlightSyncPromise = runPromise;
+    return runPromise;
   }
 
   /**
@@ -442,6 +588,8 @@ export class AutoSyncScheduler {
     this.disposed = true;
     this.started = false;
     this.pendingFollowUpSync = false;
+    this.postRestoreHoldCount = 0;
+    this.pendingPostRestoreSync = false;
 
     this.clearAllTimers();
 
@@ -493,7 +641,7 @@ export class AutoSyncScheduler {
       return;
     }
 
-    if (this.coordinator.isOperationInProgress()) {
+    if (this.coordinator.isOperationInProgress() || this.postRestoreHoldCount > 0) {
       this.pendingFollowUpSync = true;
       return;
     }
@@ -532,6 +680,7 @@ export class AutoSyncScheduler {
     }
 
     if (
+      this.postRestoreHoldCount > 0 ||
       this.inFlightSyncPromise ||
       this.coordinator.isOperationInProgress() ||
       this.coordinator.isAuthPaused(this.userId)
@@ -552,6 +701,11 @@ export class AutoSyncScheduler {
 
   private triggerSync(reason: AutoSyncTriggerReason): Promise<UnifiedSyncResult | null> {
     if (this.disposed || !this.started || !this.isSessionValid()) {
+      return Promise.resolve(null);
+    }
+
+    if (this.postRestoreHoldCount > 0) {
+      this.pendingPostRestoreSync = true;
       return Promise.resolve(null);
     }
 

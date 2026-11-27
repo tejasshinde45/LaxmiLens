@@ -544,4 +544,30 @@ describe('Phase 8 Application Layer: Recurring Use Cases', () => {
     const afterDismiss = await overviewUseCase.execute(userId, { asOfDate: '2026-12-25' });
     expect(afterDismiss.upcoming[0].occurrenceDate).toBe('2027-01-25');
   });
+
+  it('normalizes empty or whitespace overrideNote on recurring confirmation without writing empty string', async () => {
+    const rule = await createRuleUseCase.execute({
+      userId,
+      title: 'Broadband Plan',
+      description: 'Monthly fiber plan',
+      type: 'expense',
+      amountPaise: 99900,
+      accountId: bankAccId,
+      categoryId: expCatId,
+      frequency: 'monthly',
+      startDate: '2026-11-25'
+    });
+
+    const res = await confirmUseCase.execute({
+      userId,
+      recurringRuleId: rule.id,
+      occurrenceDate: '2026-11-25',
+      overrideNote: '   '
+    });
+
+    const tx = txRepo.txs.get(res.transactionId);
+    expect(tx?.note).toBeUndefined();
+    const txOutbox = syncPort.outbox.find((e) => e.entity === 'transactions');
+    expect(txOutbox?.payload.note).toBeNull();
+  });
 });

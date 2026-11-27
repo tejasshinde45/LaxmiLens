@@ -24,6 +24,7 @@ import {
   EditTransactionFormValues
 } from '../schemas/transactionSchemas';
 import { formatPaiseToINR } from '@/utils/formatters';
+import { normalizeOptionalText } from '@/utils/textNormalization';
 import { createUserId } from '@/domain/value-objects/Identifiers';
 import { triggerAlertEvaluationSafely } from '@/features/notifications/services/financialAlertEvaluator';
 import {
@@ -235,7 +236,7 @@ export function useTransactions(client?: QueryClient, options?: UseTransactionsO
           destinationAccountId: values.type === 'transfer' ? values.destinationAccountId : undefined,
           categoryId: values.type !== 'transfer' && values.categoryId ? values.categoryId : undefined,
           title,
-          note: values.note?.trim() || undefined,
+          note: normalizeOptionalText(values.note),
           transactionDate: new Date(values.transactionDate).toISOString(),
           idempotencyKey: crypto.randomUUID()
         };
@@ -260,8 +261,8 @@ export function useTransactions(client?: QueryClient, options?: UseTransactionsO
         }
         toast.success(
           tx.type === 'transfer'
-            ? 'Transfer recorded successfully'
-            : `${tx.type === 'income' ? 'Income' : 'Expense'} recorded successfully`
+            ? 'Transfer saved locally'
+            : `${tx.type === 'income' ? 'Income' : 'Expense'} saved locally`
         );
       },
       onError: (err) => {
@@ -301,7 +302,9 @@ export function useTransactions(client?: QueryClient, options?: UseTransactionsO
           destinationAccountId: values.type === 'transfer' ? values.destinationAccountId : undefined,
           categoryId: values.type !== 'transfer' && values.categoryId ? values.categoryId : undefined,
           title,
-          note: values.note !== undefined ? values.note.trim() : undefined,
+          // Pass empty string when explicitly cleared so UpdateTransactionUseCase does not
+          // fall back to existing.note; Transaction entity collapses '' to undefined before persistence.
+          note: values.note !== undefined ? (normalizeOptionalText(values.note) ?? '') : undefined,
           transactionDate: new Date(values.transactionDate).toISOString()
         };
 
@@ -323,7 +326,7 @@ export function useTransactions(client?: QueryClient, options?: UseTransactionsO
         if (user?.id) {
           triggerAlertEvaluationSafely(user.id, activeClient);
         }
-        toast.success('Transaction updated successfully');
+        toast.success('Transaction changes saved locally');
       },
       onError: (err) => {
         console.error('Failed to update transaction:', err);
@@ -359,7 +362,7 @@ export function useTransactions(client?: QueryClient, options?: UseTransactionsO
         if (user?.id) {
           triggerAlertEvaluationSafely(user.id, activeClient);
         }
-        toast.success('Transaction deleted');
+        toast.success('Transaction removal saved locally');
       },
       onError: (err) => {
         console.error('Failed to delete transaction:', err);

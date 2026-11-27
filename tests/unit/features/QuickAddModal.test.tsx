@@ -652,7 +652,7 @@ describe('Phase 12 Stage 1C: QuickAddModal Functional Implementation', () => {
       await waitFor(() => {
         expect(onClose).toHaveBeenCalledTimes(1);
       });
-      expect(toast.success).toHaveBeenCalledWith('Expense recorded successfully');
+      expect(toast.success).toHaveBeenCalledWith('Expense saved locally');
 
       // Reopen for Income
       rerender(<Wrapper isOpen={false} />);
@@ -670,7 +670,7 @@ describe('Phase 12 Stage 1C: QuickAddModal Functional Implementation', () => {
       await waitFor(() => {
         expect(onClose).toHaveBeenCalledTimes(2);
       });
-      expect(toast.success).toHaveBeenCalledWith('Income recorded successfully');
+      expect(toast.success).toHaveBeenCalledWith('Income saved locally');
 
       // Reopen for Transfer
       rerender(<Wrapper isOpen={false} />);
@@ -687,7 +687,7 @@ describe('Phase 12 Stage 1C: QuickAddModal Functional Implementation', () => {
       await waitFor(() => {
         expect(onClose).toHaveBeenCalledTimes(3);
       });
-      expect(toast.success).toHaveBeenCalledWith('Transfer recorded successfully');
+      expect(toast.success).toHaveBeenCalledWith('Transfer saved locally');
 
       // Verify stored domain entities: historical + 3 new transactions (4 total; transfer is single-row)
       expect(transactionStore.size).toBe(4);

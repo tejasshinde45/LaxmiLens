@@ -10,11 +10,48 @@ import {
   resetNotificationEvaluationState,
   triggerAlertEvaluationSafely
 } from '@/features/notifications/services/financialAlertEvaluator';
+import { getRecoveryUrlError, hasRecoveryRedirectHint } from '../utils/recoveryUrl';
+
+const PASSWORD_RECOVERY_STORAGE_KEY = 'laxmilens_password_recovery';
+
+function hasRecoveryHintInWindow(): boolean {
+  if (typeof window === 'undefined') return false;
+  return hasRecoveryRedirectHint(window.location.search, window.location.hash);
+}
+
+function readStoredPasswordRecoveryFlag(): boolean {
+  if (typeof window === 'undefined') return false;
+  if (getRecoveryUrlError(window.location.search, window.location.hash)) {
+    return false;
+  }
+  if (hasRecoveryHintInWindow()) {
+    return true;
+  }
+  try {
+    return window.sessionStorage?.getItem(PASSWORD_RECOVERY_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeStoredPasswordRecoveryFlag(active: boolean): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (active) {
+      window.sessionStorage?.setItem(PASSWORD_RECOVERY_STORAGE_KEY, '1');
+    } else {
+      window.sessionStorage?.removeItem(PASSWORD_RECOVERY_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore storage access failures in restricted environments
+  }
+}
 
 export interface AuthContextType {
   user: AuthUser | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  isPasswordRecovery?: boolean;
   initError?: string | null;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (params: SignUpParams) => Promise<void>;
@@ -22,6 +59,7 @@ export interface AuthContextType {
   signOut: () => Promise<void>;
   resetPassword: (email: string, redirectTo?: string) => Promise<void>;
   updatePassword: (newPassword: string) => Promise<void>;
+  clearPasswordRecovery?: () => void;
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -37,12 +75,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
 }) => {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState<boolean>(() =>
+    readStoredPasswordRecoveryFlag()
+  );
   const [initError, setInitError] = useState<string | null>(null);
   const contextQueryClient = useContext(QueryClientContext);
   const activeQueryClient = contextQueryClient ?? queryClient;
   const previousUserIdRef = useRef<string | null>(null);
   const attemptedUserIdRef = useRef<string | null>(null);
   const transitionGenerationRef = useRef<number>(0);
+  const recoveryEventReceivedRef = useRef<boolean>(false);
+
+  const setPasswordRecoveryActive = useCallback((active: boolean) => {
+    writeStoredPasswordRecoveryFlag(active);
+    setIsPasswordRecovery(active);
+  }, []);
+
+  const clearPasswordRecovery = useCallback(() => {
+    recoveryEventReceivedRef.current = false;
+    setPasswordRecoveryActive(false);
+  }, [setPasswordRecoveryActive]);
 
   // Sync state, handle cache invalidation, and serialize session transitions
   const handleUserChange = useCallback(async (nextUser: AuthUser | null) => {
@@ -160,11 +212,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
       .getCurrentUser()
       .then((initialUser) => {
         if (isMounted) {
+          if (!initialUser && !recoveryEventReceivedRef.current && !hasRecoveryHintInWindow()) {
+            setPasswordRecoveryActive(false);
+          }
           handleUserChange(initialUser);
         }
       })
       .catch(() => {
         if (isMounted) {
+          if (!recoveryEventReceivedRef.current && !hasRecoveryHintInWindow()) {
+            setPasswordRecoveryActive(false);
+          }
           handleUserChange(null);
         }
       });
@@ -172,6 +230,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
     // 2. Subscribe to auth state changes (e.g. token refresh, sign-in, sign-out)
     const unsubscribe = authAdapter.onAuthStateChange((updatedUser, event) => {
       if (isMounted) {
+        if (event === 'PASSWORD_RECOVERY') {
+          recoveryEventReceivedRef.current = true;
+          setPasswordRecoveryActive(true);
+        } else if (event === 'SIGNED_OUT') {
+          recoveryEventReceivedRef.current = false;
+          setPasswordRecoveryActive(false);
+        } else if (event === 'SIGNED_IN' && !hasRecoveryHintInWindow()) {
+          recoveryEventReceivedRef.current = false;
+          setPasswordRecoveryActive(false);
+        }
+
         handleUserChange(updatedUser);
         if (
           updatedUser?.id &&
@@ -186,22 +255,24 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
       isMounted = false;
       unsubscribe();
     };
-  }, [authAdapter, handleUserChange]);
+  }, [authAdapter, handleUserChange, setPasswordRecoveryActive]);
 
   const signIn = useCallback(
     async (email: string, password: string) => {
       const authenticatedUser = await authAdapter.signInWithEmail(email, password);
+      clearPasswordRecovery();
       handleUserChange(authenticatedUser);
     },
-    [authAdapter, handleUserChange]
+    [authAdapter, clearPasswordRecovery, handleUserChange]
   );
 
   const signUp = useCallback(
     async (params: SignUpParams) => {
       const registeredUser = await authAdapter.signUpWithEmail(params);
+      clearPasswordRecovery();
       handleUserChange(registeredUser);
     },
-    [authAdapter, handleUserChange]
+    [authAdapter, clearPasswordRecovery, handleUserChange]
   );
 
   const signInWithGoogle = useCallback(
@@ -215,9 +286,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
     try {
       await authAdapter.signOut();
     } finally {
+      clearPasswordRecovery();
       handleUserChange(null);
     }
-  }, [authAdapter, handleUserChange]);
+  }, [authAdapter, clearPasswordRecovery, handleUserChange]);
 
   const resetPassword = useCallback(
     async (email: string, redirectTo?: string) => {
@@ -229,21 +301,24 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
   const updatePassword = useCallback(
     async (newPassword: string) => {
       await authAdapter.updatePassword(newPassword);
+      clearPasswordRecovery();
     },
-    [authAdapter]
+    [authAdapter, clearPasswordRecovery]
   );
 
   const value: AuthContextType = {
     user,
     isLoading,
     isAuthenticated: !!user,
+    isPasswordRecovery,
     initError,
     signIn,
     signUp,
     signInWithGoogle,
     signOut,
     resetPassword,
-    updatePassword
+    updatePassword,
+    clearPasswordRecovery
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

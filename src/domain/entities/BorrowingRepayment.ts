@@ -10,6 +10,7 @@ import {
 import { Money } from '../value-objects/Money';
 import { InvalidUserIdError } from '../errors/DomainErrors';
 import { InvalidRepaymentAmountError } from '../errors/BorrowingErrors';
+import { normalizeOptionalText } from '@/utils/textNormalization';
 
 export interface BorrowingRepaymentProps {
   id: RepaymentId;
@@ -72,7 +73,7 @@ export class BorrowingRepayment {
     this.repaymentDate = props.repaymentDate;
     this.paymentAccountId = props.paymentAccountId;
     this.transactionId = props.transactionId;
-    this.notes = props.notes?.trim();
+    this.notes = normalizeOptionalText(props.notes);
     this.createdAt = props.createdAt ?? now;
     this.updatedAt = props.updatedAt ?? now;
 

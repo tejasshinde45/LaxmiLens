@@ -262,4 +262,29 @@ describe('AccountsPage Feature (Milestone 5.1)', () => {
       expect(screen.getByLabelText(/opening balance/i)).toBeInTheDocument();
     });
   });
+
+  it('does not expose the developer-only Controlled Account Lifecycle Recovery panel on AccountsPage', () => {
+    vi.spyOn(useAccountsModule, 'useAccounts').mockReturnValue({
+      accounts: sampleAccounts,
+      summary: mockSummary,
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: mockRefetch,
+      createAccount: mockCreateAccount,
+      isCreating: false,
+      updateAccount: mockUpdateAccount,
+      isUpdating: false,
+      archiveAccount: mockArchiveAccount,
+      isArchiving: false,
+      restoreAccount: mockRestoreAccount,
+      isRestoring: false
+    });
+
+    render(<AccountsPage />);
+
+    expect(screen.queryByRole('button', { name: /dev recovery/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Controlled Account Lifecycle Recovery/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/DEV ONLY/i)).not.toBeInTheDocument();
+  });
 });

@@ -365,6 +365,7 @@ export function inferSyncErrorClassificationFromMessage(
 
   if (
     lower.includes('version conflict') ||
+    lower.includes('version mismatch') ||
     lower.includes('occ conflict') ||
     lower.includes('concurrency conflict') ||
     lower.includes('already exists in cloud') ||

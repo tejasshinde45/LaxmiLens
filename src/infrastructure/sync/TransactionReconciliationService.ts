@@ -11,6 +11,7 @@ import {
 } from '@/infrastructure/database/cloud/mappers/TransactionMapper';
 import { ISupabaseTransactionRepository } from '@/infrastructure/database/cloud/repositories/SupabaseTransactionRepository';
 import { DEFAULT_CLOUD_PAGE_SIZE } from '@/infrastructure/database/cloud/repositories/cloudPagination';
+import { normalizeOptionalText } from '@/utils/textNormalization';
 import { ICategoryResolver } from './CategoryMappingService';
 import { SyncAuthError } from './errors/SyncErrors';
 
@@ -36,7 +37,8 @@ function areTransactionRecordsEquivalent(
   local: LocalTransactionRecord,
   mapped: LocalTransactionRecord
 ): boolean {
-  const localDest = local.destinationAccountId ?? local.targetAccountId ?? undefined;
+  const localDest = normalizeOptionalText(local.destinationAccountId ?? local.targetAccountId);
+  const localNote = normalizeOptionalText(local.note) ?? normalizeOptionalText(local.notes);
   const localDeleted = local.deletedAt ?? (local.isDeleted ? local.updatedAt : null);
   const mappedDeleted = mapped.deletedAt ?? null;
   return (
@@ -44,10 +46,10 @@ function areTransactionRecordsEquivalent(
     (local.amountPaise ?? local.amountInPaise) === mapped.amountPaise &&
     (local.currency || 'INR') === (mapped.currency || 'INR') &&
     local.accountId === mapped.accountId &&
-    localDest === mapped.destinationAccountId &&
-    (local.categoryId ?? undefined) === (mapped.categoryId ?? undefined) &&
+    localDest === normalizeOptionalText(mapped.destinationAccountId) &&
+    normalizeOptionalText(local.categoryId) === normalizeOptionalText(mapped.categoryId) &&
     (local.title || local.description || '').trim() === mapped.title.trim() &&
-    (local.note ?? local.notes ?? undefined) === (mapped.note ?? undefined) &&
+    localNote === normalizeOptionalText(mapped.note) &&
     Date.parse(local.transactionDate || local.date || '') === Date.parse(mapped.transactionDate) &&
     ((localDeleted === null && mappedDeleted === null) ||
       (localDeleted !== null &&

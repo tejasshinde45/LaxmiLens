@@ -1,7 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import {
   Plus,
-  RefreshCw,
   Search,
   Users,
   ArrowDownLeft,
@@ -15,7 +14,6 @@ import { Input } from '@/components/ui/Input';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useBorrowings } from './hooks/useBorrowings';
 import { useAccounts } from '@/features/accounts/hooks/useAccounts';
-import { useAccountSync } from '@/features/accounts/hooks/useAccountSync';
 import { BorrowingsSummaryMetrics } from './components/BorrowingsSummaryMetrics';
 import { LenderTable } from './components/LenderTable';
 import { BorrowingHistoryTable } from './components/BorrowingHistoryTable';
@@ -42,7 +40,6 @@ export const BorrowingsPage: React.FC = () => {
   } = useBorrowings();
 
   const { accounts, isLoading: isAccountsLoading } = useAccounts();
-  const { syncNow, isSyncing, pendingCount } = useAccountSync();
 
   // Tab & Search State
   const [activeTab, setActiveTab] = useState<BorrowingsTab>('lenders');
@@ -118,23 +115,6 @@ export const BorrowingsPage: React.FC = () => {
         }
         actions={
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => syncNow()}
-              disabled={isSyncing}
-              className="text-xs"
-            >
-              <RefreshCw
-                className={cn('h-3.5 w-3.5 mr-1.5', isSyncing && 'animate-spin text-[#D6AD60]')}
-              />
-              {isSyncing ? 'Syncing...' : 'Sync Cloud'}
-              {pendingCount > 0 && !isSyncing && (
-                <span className="ml-1.5 px-1.5 py-0.2 bg-[#D6AD60]/20 text-[#D6AD60] rounded-full text-[10px] font-bold">
-                  {pendingCount}
-                </span>
-              )}
-            </Button>
             {summary.activeLendersCount > 0 && (
               <Button
                 variant="outline"

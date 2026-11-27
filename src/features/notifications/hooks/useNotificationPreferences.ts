@@ -133,7 +133,7 @@ export function useNotificationPreferences(explicitClient?: QueryClient) {
         client.invalidateQueries({ queryKey: ['syncPendingCount', saved.userId] });
         client.invalidateQueries({ queryKey: pendingOutboxEntriesQueryKey(saved.userId) });
         triggerAlertEvaluationSafely(saved.userId, client);
-        toast.success('Notification preferences saved.');
+        toast.success('Notification preferences saved locally.');
       },
       onError: (err) => {
         toast.error(err.message || 'Could not save notification preferences.');

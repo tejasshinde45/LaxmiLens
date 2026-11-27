@@ -3,7 +3,6 @@ import { toast } from 'sonner';
 import {
   Search,
   Bell,
-  HardDrive,
   User,
   Settings,
   LogOut,
@@ -11,7 +10,7 @@ import {
 } from 'lucide-react';
 import { Avatar } from '@/components/ui/Avatar';
 import { IconButton } from '@/components/ui/IconButton';
-import { Badge } from '@/components/ui/Badge';
+import { HeaderSyncIndicator } from './HeaderSyncIndicator';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { useNotifications } from '@/features/notifications/hooks/useNotifications';
 import {
@@ -145,12 +144,7 @@ export const Header: React.FC<HeaderProps> = ({
         </IconButton>
 
         {/* Honest Sync Status Indicator */}
-        <div className="hidden sm:flex items-center">
-          <Badge variant="outline" size="sm" className="gap-1.5 border-[#303030] bg-[#1B1B1B]">
-            <HardDrive className="h-3 w-3 text-[#72B895]" aria-hidden="true" />
-            <span className="text-[11px] text-[#B9B4AA]">Local Store</span>
-          </Badge>
-        </div>
+        <HeaderSyncIndicator />
 
         {/* Notifications Center Trigger */}
         <IconButton

@@ -140,7 +140,11 @@ describe('Auth Pages', () => {
 
   describe('ResetPasswordPage', () => {
     it('renders password fields and triggers updatePassword', async () => {
-      const mockContext = createMockAuthContext();
+      const mockContext = createMockAuthContext({
+        user: { id: 'user-1', email: 'recovery@laxmilens.app' },
+        isAuthenticated: true,
+        isPasswordRecovery: true
+      });
 
       render(
         <AuthContext.Provider value={mockContext}>

@@ -275,7 +275,7 @@ export function useRecurring(
       },
       onSuccess: (created) => {
         invalidateRecurringState(false);
-        toast.success(`Schedule "${created.title}" created.`);
+        toast.success(`Schedule "${created.title}" saved locally.`);
       },
       onError: (err) => {
         toast.error(err.message || 'Could not create recurring schedule.');
@@ -314,7 +314,7 @@ export function useRecurring(
       },
       onSuccess: (updated) => {
         invalidateRecurringState(false);
-        toast.success(`Updated schedule "${updated.title}".`);
+        toast.success(`Schedule "${updated.title}" changes saved locally.`);
       },
       onError: (err) => {
         toast.error(err.message || 'Could not update schedule.');
@@ -337,7 +337,7 @@ export function useRecurring(
       },
       onSuccess: () => {
         invalidateRecurringState(false);
-        toast.success('Recurring schedule paused.');
+        toast.success('Recurring schedule pause saved locally.');
       },
       onError: (err) => toast.error(err.message || 'Could not pause schedule.')
     },
@@ -358,7 +358,7 @@ export function useRecurring(
       },
       onSuccess: () => {
         invalidateRecurringState(false);
-        toast.success('Recurring schedule resumed.');
+        toast.success('Recurring schedule resume saved locally.');
       },
       onError: (err) => toast.error(err.message || 'Could not resume schedule.')
     },
@@ -379,7 +379,7 @@ export function useRecurring(
       },
       onSuccess: () => {
         invalidateRecurringState(false);
-        toast.success('Recurring schedule removed. Recorded transactions remain preserved.');
+        toast.success('Recurring schedule removal saved locally. Recorded transactions remain preserved.');
       },
       onError: (err) => toast.error(err.message || 'Could not remove schedule.')
     },
@@ -407,8 +407,8 @@ export function useRecurring(
         invalidateRecurringState(true);
         toast.success(
           res.alreadyConfirmed
-            ? 'Payment was already confirmed in your ledger.'
-            : 'Payment confirmed and transaction recorded in your ledger.'
+            ? 'Payment was already saved locally.'
+            : 'Payment confirmed and transaction saved locally.'
         );
       },
       onError: (err) => toast.error(err.message || 'Failed to confirm recurring transaction.')
@@ -435,7 +435,7 @@ export function useRecurring(
       },
       onSuccess: () => {
         invalidateRecurringState(false);
-        toast.success('Occurrence skipped. No ledger transaction was created.');
+        toast.success('Occurrence skip saved locally. No ledger transaction was created.');
       },
       onError: (err) => toast.error(err.message || 'Could not skip occurrence.')
     },
@@ -461,7 +461,7 @@ export function useRecurring(
       },
       onSuccess: (_res, vars) => {
         invalidateRecurringState(false);
-        toast.success(`Reminder snoozed until ${vars.snoozeUntilDate}.`);
+        toast.success(`Reminder snooze until ${vars.snoozeUntilDate} saved locally.`);
       },
       onError: (err) => toast.error(err.message || 'Could not snooze reminder.')
     },
@@ -487,7 +487,7 @@ export function useRecurring(
       },
       onSuccess: () => {
         invalidateRecurringState(false);
-        toast.success('Reminder dismissed.');
+        toast.success('Reminder dismissal saved locally.');
       },
       onError: (err) => toast.error(err.message || 'Could not dismiss reminder.')
     },

@@ -187,4 +187,46 @@ describe('Transaction Entity', () => {
     expect(deleted.deletedAt).toEqual(deleteTimestamp);
     expect(deleted.id).toBe(original.id);
   });
+
+  it('normalizes empty and whitespace-only notes to undefined while trimming non-empty notes', () => {
+    const emptyNoteTx = new Transaction({
+      id: createTransactionId('tx-empty-note'),
+      userId,
+      type: 'expense',
+      amountPaise: 5000,
+      accountId: sourceAccountId,
+      title: 'Coffee',
+      note: '',
+      transactionDate: new Date(),
+      idempotencyKey: 'idemp-empty-note'
+    });
+    expect(emptyNoteTx.note).toBeUndefined();
+    expect(emptyNoteTx.notes).toBeUndefined();
+
+    const whitespaceNoteTx = new Transaction({
+      id: createTransactionId('tx-ws-note'),
+      userId,
+      type: 'expense',
+      amountPaise: 5000,
+      accountId: sourceAccountId,
+      title: 'Tea',
+      note: '   \t  ',
+      transactionDate: new Date(),
+      idempotencyKey: 'idemp-ws-note'
+    });
+    expect(whitespaceNoteTx.note).toBeUndefined();
+
+    const nonEmptyNoteTx = new Transaction({
+      id: createTransactionId('tx-trimmed-note'),
+      userId,
+      type: 'expense',
+      amountPaise: 5000,
+      accountId: sourceAccountId,
+      title: 'Lunch',
+      note: '  Team meal  ',
+      transactionDate: new Date(),
+      idempotencyKey: 'idemp-trimmed-note'
+    });
+    expect(nonEmptyNoteTx.note).toBe('Team meal');
+  });
 });

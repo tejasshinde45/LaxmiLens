@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/Badge';
 import { APP_CONFIG } from '@/config/constants';
 import { NotificationPreferencesSection } from '@/features/notifications/components/NotificationPreferencesSection';
 import { BackupRestoreSection } from './components/BackupRestoreSection';
+import { SyncStatusSettingsCard } from './components/SyncStatusSettingsCard';
 
 export const SettingsPage: React.FC = () => {
   return (
@@ -20,6 +21,9 @@ export const SettingsPage: React.FC = () => {
 
         {/* Encrypted Data Backup & Restore */}
         <BackupRestoreSection />
+
+        {/* Automatic Cloud Synchronization Status & Manual Retry on Failure */}
+        <SyncStatusSettingsCard />
 
         {/* Currency & Financial Configuration */}
         <Card variant="surface" className="space-y-4 p-5">

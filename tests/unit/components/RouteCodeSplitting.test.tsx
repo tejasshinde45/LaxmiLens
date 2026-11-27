@@ -80,9 +80,9 @@ describe('Phase 12 Stage 2A: Route-Based Code Splitting & Lazy Loading', () => {
     expect(guestBranch?.children?.map((c) => c.path)).toEqual([
       '/login',
       '/register',
-      '/forgot-password',
-      '/reset-password'
+      '/forgot-password'
     ]);
+    expect(rootChildren.some((c) => c.path === '/reset-password')).toBe(true);
 
     const protectedPaths = embeddedErrorBranch?.children?.map((c) => c.path ?? 'index') ?? [];
     expect(protectedPaths).toEqual([

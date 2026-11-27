@@ -61,6 +61,48 @@ export interface AccountsSummary {
   archivedAccountsCount: number;
 }
 
+export interface CashAndBankBalanceSummary {
+  balancePaise: number;
+  formattedBalance: string;
+  accountCount: number;
+}
+
+/**
+ * Computes combined balance across active Cash and Bank accounts using existing
+ * LedgerRules-derived balances while excluding liabilities and archived accounts.
+ */
+export function computeCashAndBankBalance(
+  accounts: ReadonlyArray<AccountWithBalanceDTO>
+): CashAndBankBalanceSummary {
+  let balancePaise = 0;
+  let accountCount = 0;
+
+  for (const account of accounts) {
+    if (account.isArchived) continue;
+    if (account.isCreditCard) continue;
+    if (
+      account.systemTag === 'personal_borrowings' ||
+      account.name.trim().toLowerCase() === 'personal borrowings'
+    ) {
+      continue;
+    }
+
+    const accountType = account.accountType.trim().toLowerCase();
+    if (accountType !== 'cash' && accountType !== 'bank' && accountType !== 'savings') {
+      continue;
+    }
+
+    balancePaise += account.currentBalancePaise;
+    accountCount++;
+  }
+
+  return {
+    balancePaise,
+    formattedBalance: formatPaiseToINR(balancePaise),
+    accountCount
+  };
+}
+
 export function useAccounts() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -170,7 +212,7 @@ export function useAccounts() {
       queryClient.invalidateQueries({ queryKey: ['syncPendingCount', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['pendingOutboxEntries', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['reports', user?.id] });
-      toast.success(`Account "${newAccount.name}" created successfully`);
+      toast.success(`Account "${newAccount.name}" saved locally`);
     },
     onError: (err) => {
       const msg = err instanceof Error ? err.message : 'Could not create account';
@@ -205,7 +247,7 @@ export function useAccounts() {
       queryClient.invalidateQueries({ queryKey: ['syncPendingCount', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['pendingOutboxEntries', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['reports', user?.id] });
-      toast.success(`Account "${updated.name}" updated successfully`);
+      toast.success(`Account "${updated.name}" saved locally`);
     },
     onError: (err) => {
       const msg = err instanceof Error ? err.message : 'Could not update account';
@@ -230,7 +272,7 @@ export function useAccounts() {
       queryClient.invalidateQueries({ queryKey: ['syncPendingCount', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['pendingOutboxEntries', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['reports', user?.id] });
-      toast.success('Account archived successfully');
+      toast.success('Account archive saved locally');
     },
     onError: (err) => {
       const msg = err instanceof Error ? err.message : 'Could not archive account';
@@ -255,7 +297,7 @@ export function useAccounts() {
       queryClient.invalidateQueries({ queryKey: ['syncPendingCount', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['pendingOutboxEntries', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['reports', user?.id] });
-      toast.success('Account restored successfully');
+      toast.success('Account restore saved locally');
     },
     onError: (err) => {
       const msg = err instanceof Error ? err.message : 'Could not restore account';

@@ -1,12 +1,10 @@
 import React, { useState, useMemo } from 'react';
-import { Wallet, Plus, AlertCircle, Archive, RefreshCw } from 'lucide-react';
+import { Wallet, Plus, AlertCircle, Archive } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
 import { Button } from '@/components/ui/Button';
-import { Badge } from '@/components/ui/Badge';
 import { Card } from '@/components/ui/Card';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { EmptyState } from '@/components/feedback/EmptyState';
-import { cn } from '@/utils/cn';
 import {
   Dialog,
   DialogContent,
@@ -16,13 +14,11 @@ import {
   DialogFooter
 } from '@/components/ui/Dialog';
 import { useAccounts } from './hooks/useAccounts';
-import { useAccountSync } from './hooks/useAccountSync';
 import { AccountSummaryMetrics } from './components/AccountSummaryMetrics';
 import { AccountFilters, AccountFilterTab } from './components/AccountFilters';
 import { AccountCard } from './components/AccountCard';
 import { AccountFormModal } from './components/AccountFormModal';
 import { AccountDetailModal } from './components/AccountDetailModal';
-import { DevAccountRecoveryModal } from './components/DevAccountRecoveryModal';
 import { AccountWithBalanceDTO } from '@/application/dto/AccountDTO';
 import { CreateAccountFormValues, EditAccountFormValues } from './schemas/accountSchemas';
 
@@ -42,8 +38,6 @@ export const AccountsPage: React.FC = () => {
     isArchiving,
     restoreAccount
   } = useAccounts();
-
-  const { syncNow, isSyncing, pendingCount, isAuthenticated } = useAccountSync();
 
   // Filter & Search State
   const [activeTab, setActiveTab] = useState<AccountFilterTab>('all');
@@ -166,28 +160,6 @@ export const AccountsPage: React.FC = () => {
         description="Bank accounts, cash reserves, digital wallets, and credit cards with strictly derived balances."
         actions={
           <div className="flex items-center gap-2.5">
-            {import.meta.env.DEV && <DevAccountRecoveryModal />}
-            {isAuthenticated && (
-              <Button
-                variant="outline"
-                size="sm"
-                leftIcon={
-                  <RefreshCw
-                    className={cn('h-3.5 w-3.5', isSyncing && 'animate-spin text-[#D6AD60]')}
-                  />
-                }
-                onClick={() => syncNow()}
-                disabled={isSyncing}
-                title="Synchronize pending account changes to Supabase cloud"
-              >
-                {isSyncing ? 'Syncing...' : 'Sync Now'}
-                {pendingCount > 0 && (
-                  <Badge variant="gold" size="sm" className="ml-1">
-                    {pendingCount}
-                  </Badge>
-                )}
-              </Button>
-            )}
             <Button
               variant="primary"
               size="sm"

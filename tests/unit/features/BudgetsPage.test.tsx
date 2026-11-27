@@ -492,15 +492,12 @@ describe('BudgetsPage & Phase 5 Budget Integration', () => {
     });
   });
 
-  describe('Manual synchronization & real budget spending use-case integration', () => {
-    it('triggers existing Sync Cloud coordinator from BudgetsPage and invalidates budget queries in useAccountSync', async () => {
+  describe('Automatic synchronization & real budget spending use-case integration', () => {
+    it('omits manual Sync Cloud button on BudgetsPage and preserves budget query invalidation in useAccountSync', async () => {
       setupDefaultHookMocks({ pendingCount: 3 });
       render(<BudgetsPage />);
 
-      const syncBtn = screen.getByRole('button', { name: /sync cloud/i });
-      expect(syncBtn).toHaveTextContent('3');
-      fireEvent.click(syncBtn);
-      expect(mockSyncNow).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole('button', { name: /sync cloud|sync now/i })).not.toBeInTheDocument();
 
       // Verify real useAccountSync hook wires budgets query invalidation via ManualSyncCoordinator
       vi.restoreAllMocks();

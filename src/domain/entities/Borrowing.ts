@@ -9,6 +9,7 @@ import {
 import { Money } from '../value-objects/Money';
 import { InvalidUserIdError } from '../errors/DomainErrors';
 import { InvalidBorrowingAmountError } from '../errors/BorrowingErrors';
+import { normalizeOptionalText } from '@/utils/textNormalization';
 
 export type BorrowingStatus = 'active' | 'repaid';
 
@@ -72,7 +73,7 @@ export class Borrowing {
     this.receivingAccountId = props.receivingAccountId;
     this.transactionId = props.transactionId;
     this.status = props.status ?? 'active';
-    this.notes = props.notes?.trim();
+    this.notes = normalizeOptionalText(props.notes);
     this.createdAt = props.createdAt ?? now;
     this.updatedAt = props.updatedAt ?? now;
 

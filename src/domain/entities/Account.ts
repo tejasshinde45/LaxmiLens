@@ -1,6 +1,7 @@
 import { AccountId, UserId, isValidUuid } from '../value-objects/Identifiers';
 import { Money } from '../value-objects/Money';
 import { InvalidUserIdError } from '../errors/DomainErrors';
+import { normalizeOptionalText } from '@/utils/textNormalization';
 
 export type AccountType = 'cash' | 'bank' | 'savings' | 'credit_card' | 'wallet' | 'other';
 
@@ -61,11 +62,11 @@ export class Account {
     this.accountType = props.accountType;
     this.openingBalancePaise = props.openingBalancePaise;
     this.currency = props.currency ?? 'INR';
-    this.institutionName = props.institutionName?.trim();
-    this.color = props.color;
-    this.icon = props.icon;
-    this.notes = props.notes?.trim();
-    this.systemTag = props.systemTag?.trim() || undefined;
+    this.institutionName = normalizeOptionalText(props.institutionName);
+    this.color = normalizeOptionalText(props.color);
+    this.icon = normalizeOptionalText(props.icon);
+    this.notes = normalizeOptionalText(props.notes);
+    this.systemTag = normalizeOptionalText(props.systemTag);
     this.isArchived = props.isArchived ?? false;
     this.version = props.version ?? 1;
     this.createdAt = props.createdAt ?? now;

@@ -536,6 +536,43 @@ export class DatabaseManager {
     this.activeRepositories.autoSyncScheduler.start();
   }
 
+  /**
+   * Holds automatic background synchronization while restore completion UI confirmation
+   * remains active for the authenticated user.
+   */
+  public holdPostRestoreSync(userId?: string): void {
+    if (!this.activeRepositories) {
+      return;
+    }
+    if (userId && this.activeUserId !== userId) {
+      return;
+    }
+    this.activeRepositories.autoSyncScheduler.holdPostRestoreSync();
+  }
+
+  /**
+   * Releases the UI restore completion confirmation hold so restored pending changes may
+   * begin automatic background synchronization cleanly.
+   */
+  public releasePostRestoreSync(userId?: string): void {
+    if (!this.activeRepositories) {
+      return;
+    }
+    if (userId && this.activeUserId !== userId) {
+      return;
+    }
+    this.activeRepositories.autoSyncScheduler.releasePostRestoreSync();
+  }
+
+  /**
+   * Explicitly retries failed or paused outbox entries through the active scheduler and
+   * ManualSyncCoordinator without resetting local records.
+   */
+  public async retryFailedSync(): Promise<UnifiedSyncResult | null> {
+    const scheduler = await this.getActiveAutoSyncScheduler();
+    return await scheduler.retryNow();
+  }
+
   public getSyncState(): AutoSyncStateSnapshot {
     return this.activeRepositories?.autoSyncScheduler.getState() ?? this.publishedSyncState;
   }

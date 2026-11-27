@@ -41,7 +41,6 @@ export * from './database/cloud/repositories/SupabaseBorrowingRepository';
 export * from './database/cloud/repositories/SupabaseBorrowingRepaymentRepository';
 
 export * from './sync/OutboxManager';
-export * from './sync/SyncEngine';
 export * from './sync/BudgetReconciliationService';
 export * from './sync/RecurringReconciliationService';
 export * from './sync/dispatchers/AccountSyncDispatcher';

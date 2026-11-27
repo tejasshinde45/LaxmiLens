@@ -1,6 +1,7 @@
 import { LenderId, UserId, isValidUuid } from '../value-objects/Identifiers';
 import { InvalidUserIdError } from '../errors/DomainErrors';
 import { InvalidLenderNameError } from '../errors/BorrowingErrors';
+import { normalizeOptionalText } from '@/utils/textNormalization';
 
 export interface LenderProps {
   id: LenderId;
@@ -42,9 +43,9 @@ export class Lender {
     this.id = props.id;
     this.userId = props.userId;
     this.name = props.name.trim();
-    this.phone = props.phone?.trim();
-    this.email = props.email?.trim();
-    this.notes = props.notes?.trim();
+    this.phone = normalizeOptionalText(props.phone);
+    this.email = normalizeOptionalText(props.email);
+    this.notes = normalizeOptionalText(props.notes);
     this.isArchived = props.isArchived ?? false;
     this.createdAt = props.createdAt ?? now;
     this.updatedAt = props.updatedAt ?? now;

@@ -76,6 +76,18 @@ export function useBackupRestore() {
 
   const activeUserIdRef = useRef<string | null>(user?.id ?? null);
   const operationInFlightRef = useRef<boolean>(false);
+  const postRestoreHoldUserRef = useRef<string | null>(null);
+
+  const releasePostRestoreHold = useCallback(() => {
+    const heldUserId = postRestoreHoldUserRef.current;
+    if (!heldUserId) {
+      return;
+    }
+    postRestoreHoldUserRef.current = null;
+    if (typeof defaultDatabaseManager.releasePostRestoreSync === 'function') {
+      defaultDatabaseManager.releasePostRestoreSync(heldUserId);
+    }
+  }, []);
 
   const resetRestoreSession = useCallback(() => {
     setRestoreSession(INITIAL_RESTORE_SESSION);
@@ -86,6 +98,7 @@ export function useBackupRestore() {
   useEffect(() => {
     const nextUserId = user?.id ?? null;
     if (activeUserIdRef.current !== nextUserId) {
+      releasePostRestoreHold();
       activeUserIdRef.current = nextUserId;
       setExportError(null);
       setLastExportResult(null);
@@ -93,13 +106,14 @@ export function useBackupRestore() {
       setRestoreSession(INITIAL_RESTORE_SESSION);
       setRestoreError(null);
     }
-  }, [user?.id]);
+  }, [releasePostRestoreHold, user?.id]);
 
   useEffect(() => {
     return () => {
+      releasePostRestoreHold();
       setRestoreSession(INITIAL_RESTORE_SESSION);
     };
-  }, []);
+  }, [releasePostRestoreHold]);
 
   const assertExclusiveReady = useCallback(async () => {
     if (operationInFlightRef.current) {
@@ -319,6 +333,11 @@ export function useBackupRestore() {
           throw new Error('Download a safety backup before replacing existing local data.');
         }
 
+        if (startedUserId && typeof defaultDatabaseManager.holdPostRestoreSync === 'function') {
+          defaultDatabaseManager.holdPostRestoreSync(startedUserId);
+          postRestoreHoldUserRef.current = startedUserId;
+        }
+
         const result = await repos.executeBackupRestoreUseCase.execute({
           archive: currentArchive,
           mode: params.mode,
@@ -338,6 +357,7 @@ export function useBackupRestore() {
         );
         return result;
       } catch (err) {
+        releasePostRestoreHold();
         const message = formatBackupErrorMessage(err, 'Backup restore failed.');
         setRestoreError(message);
         // Clear any stale/invalidated receipt and refresh live preview on safety/state failures.
@@ -367,6 +387,7 @@ export function useBackupRestore() {
     },
     [
       assertExclusiveReady,
+      releasePostRestoreHold,
       restoreSession.archive,
       restoreSession.restorePendingOutbox,
       restoreSession.safetyBackup?.receipt,
@@ -400,6 +421,7 @@ export function useBackupRestore() {
     clearRestoreStatus: () => {
       setRestoreError(null);
       setLastRestoreResult(null);
+      releasePostRestoreHold();
     }
   };
 }

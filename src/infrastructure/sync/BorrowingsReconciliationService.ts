@@ -22,6 +22,7 @@ import {
 import { ISupabaseLenderRepository } from '@/infrastructure/database/cloud/repositories/SupabaseLenderRepository';
 import { ISupabaseBorrowingRepository } from '@/infrastructure/database/cloud/repositories/SupabaseBorrowingRepository';
 import { ISupabaseBorrowingRepaymentRepository } from '@/infrastructure/database/cloud/repositories/SupabaseBorrowingRepaymentRepository';
+import { normalizeOptionalText } from '@/utils/textNormalization';
 import { SyncAuthError } from './errors/SyncErrors';
 
 export interface BorrowingsPullConflict {
@@ -59,9 +60,9 @@ export interface BorrowingsReconciliationResult {
 function areLendersEquivalent(local: LocalLenderRecord, cloud: CloudLenderRow): boolean {
   return (
     local.name.trim() === cloud.name.trim() &&
-    (local.phone ?? undefined) === (cloud.phone ?? undefined) &&
-    (local.email ?? undefined) === (cloud.email ?? undefined) &&
-    (local.notes ?? undefined) === (cloud.notes ?? undefined) &&
+    normalizeOptionalText(local.phone) === normalizeOptionalText(cloud.phone) &&
+    normalizeOptionalText(local.email) === normalizeOptionalText(cloud.email) &&
+    normalizeOptionalText(local.notes) === normalizeOptionalText(cloud.notes) &&
     Boolean(local.isArchived) === Boolean(cloud.is_archived)
   );
 }
@@ -84,7 +85,7 @@ function areBorrowingsEquivalent(
     local.receivingAccountId === cloud.receiving_account_id.trim() &&
     local.transactionId === cloud.transaction_id.trim() &&
     local.status === cloud.status &&
-    (local.notes ?? undefined) === (cloud.notes ?? undefined)
+    normalizeOptionalText(local.notes) === normalizeOptionalText(cloud.notes)
   );
 }
 
@@ -112,7 +113,7 @@ function areRepaymentsIdentical(
     Date.parse(local.repaymentDate) === Date.parse(cloud.repayment_date) &&
     local.paymentAccountId === cloud.payment_account_id.trim() &&
     local.transactionId === cloud.transaction_id.trim() &&
-    (local.notes ?? undefined) === (cloud.notes ?? undefined)
+    normalizeOptionalText(local.notes) === normalizeOptionalText(cloud.notes)
   );
 }
 

@@ -2,13 +2,12 @@ import React, { useState, useMemo } from 'react';
 import {
   LayoutDashboard,
   Wallet,
+  Landmark,
   ArrowDownLeft,
   ArrowUpRight,
   ArrowLeftRight,
   Plus,
   Sparkles,
-  ShieldCheck,
-  RefreshCw,
   HandCoins
 } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
@@ -18,10 +17,9 @@ import { Badge } from '@/components/ui/Badge';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { EmptyState } from '@/components/feedback/EmptyState';
 import { Link, useNavigate } from 'react-router-dom';
-import { useAccounts } from '@/features/accounts/hooks/useAccounts';
+import { useAccounts, computeCashAndBankBalance } from '@/features/accounts/hooks/useAccounts';
 import { useTransactions } from '@/features/transactions/hooks/useTransactions';
 import { useCategories } from '@/features/categories/hooks/useCategories';
-import { useAccountSync } from '@/features/accounts/hooks/useAccountSync';
 import { useBudgets } from '@/features/budgets/hooks/useBudgets';
 import { getCurrentBudgetPeriod } from '@/features/budgets/schemas/budgetSchemas';
 import { CategoryIcon } from '@/features/categories/components/CategoryIcon';
@@ -49,7 +47,6 @@ export const DashboardPage: React.FC = () => {
   } = useTransactions();
 
   const { categories } = useCategories();
-  const { syncNow, isSyncing, pendingCount } = useAccountSync();
   const currentBudgetPeriod = getCurrentBudgetPeriod();
   const {
     period: budgetPeriod,
@@ -68,6 +65,7 @@ export const DashboardPage: React.FC = () => {
     () => new Map<string, AccountWithBalanceDTO>(accounts.map((a) => [a.id, a])),
     [accounts]
   );
+  const cashAndBankSummary = useMemo(() => computeCashAndBankBalance(accounts), [accounts]);
   const categoryMap = useMemo(
     () => new Map<string, Category>(categories.map((c) => [c.id, c])),
     [categories]
@@ -155,23 +153,6 @@ export const DashboardPage: React.FC = () => {
         actions={
           <div className="flex items-center gap-2">
             <Button
-              variant="outline"
-              size="sm"
-              onClick={() => syncNow()}
-              disabled={isSyncing}
-              className="text-xs"
-            >
-              <RefreshCw
-                className={cn('h-3.5 w-3.5 mr-1.5', isSyncing && 'animate-spin text-[#D6AD60]')}
-              />
-              {isSyncing ? 'Syncing...' : 'Sync Cloud'}
-              {pendingCount > 0 && !isSyncing && (
-                <span className="ml-1.5 px-1.5 py-0.2 bg-[#D6AD60]/20 text-[#D6AD60] rounded-full text-[10px] font-bold">
-                  {pendingCount}
-                </span>
-              )}
-            </Button>
-            <Button
               type="button"
               variant="primary"
               size="sm"
@@ -250,18 +231,24 @@ export const DashboardPage: React.FC = () => {
           </div>
         </Card>
 
-        {/* Security & Storage */}
+        {/* Cash & Bank Balance */}
         <Card variant="surface" className="space-y-2">
           <div className="flex items-center justify-between text-[#858078]">
-            <span className="text-xs font-medium">Security & Storage</span>
-            <ShieldCheck className="h-4 w-4 text-[#82A9CF]" />
+            <span className="text-xs font-medium">Cash & Bank Balance</span>
+            <Landmark className="h-4 w-4 text-[#82A9CF]" />
           </div>
           <div className="space-y-0.5">
-            <div className="text-sm font-semibold text-[#F5F1E8]">IndexedDB Active</div>
+            {isAccountsLoading ? (
+              <Skeleton className="h-8 w-28 my-0.5" />
+            ) : (
+              <div className="text-2xl font-bold font-tabular text-[#F5F1E8]">
+                {cashAndBankSummary.formattedBalance}
+              </div>
+            )}
             <p className="text-[11px] text-[#858078]">
-              {pendingCount > 0
-                ? `${pendingCount} update${pendingCount !== 1 ? 's' : ''} saved locally`
-                : 'Local & cloud ledger in sync'}
+              {cashAndBankSummary.accountCount > 0
+                ? `Across ${cashAndBankSummary.accountCount} active cash & bank account${cashAndBankSummary.accountCount > 1 ? 's' : ''}`
+                : 'No active cash or bank accounts'}
             </p>
           </div>
         </Card>

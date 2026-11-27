@@ -10,8 +10,7 @@ import {
   AlertTriangle,
   AlertCircle,
   ExternalLink,
-  RefreshCw,
-  CloudUpload
+  RefreshCw
 } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
 import { Card } from '@/components/ui/Card';
@@ -24,7 +23,6 @@ import {
   NotificationSeverity
 } from '@/domain/services/NotificationIdentityService';
 import { cn } from '@/utils/cn';
-import { useAccountSync } from '@/features/accounts/hooks/useAccountSync';
 import { useNotifications } from './hooks/useNotifications';
 
 type StatusTab = 'all' | 'unread' | 'history';
@@ -123,8 +121,6 @@ export const NotificationsPage: React.FC = () => {
     isDismissing
   } = useNotifications();
 
-  const { syncNow, isSyncing, pendingCount, isAuthenticated } = useAccountSync();
-
   const activeNotificationsCount = useMemo(
     () => allNotifications.filter((n) => n.status !== 'dismissed').length,
     [allNotifications]
@@ -182,23 +178,6 @@ export const NotificationsPage: React.FC = () => {
               onClick={() => void markAllAsRead()}
             >
               Mark All as Read
-            </Button>
-
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              leftIcon={<CloudUpload className="h-4 w-4 text-[#D6AD60]" />}
-              disabled={!isAuthenticated || isSyncing}
-              isLoading={isSyncing}
-              onClick={() => void syncNow()}
-            >
-              <span>Sync Cloud</span>
-              {pendingCount > 0 && (
-                <Badge variant="gold" size="sm" className="ml-1">
-                  {pendingCount}
-                </Badge>
-              )}
             </Button>
           </div>
         }

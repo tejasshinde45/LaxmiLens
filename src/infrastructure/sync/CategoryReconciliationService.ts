@@ -11,6 +11,7 @@ import {
   CloudCategoryRow
 } from '@/infrastructure/database/cloud/mappers/CategoryMapper';
 import { ISupabaseCategoryRepository } from '@/infrastructure/database/cloud/repositories/SupabaseCategoryRepository';
+import { normalizeOptionalText } from '@/utils/textNormalization';
 import { CategoryMappingService } from './CategoryMappingService';
 import { SyncAuthError } from './errors/SyncErrors';
 
@@ -46,8 +47,8 @@ function areCategoryRecordsEquivalent(
   return (
     namesMatch &&
     local.type === cloud.type &&
-    (local.icon ?? undefined) === (cloud.icon ?? undefined) &&
-    (local.color ?? undefined) === (cloud.color ?? undefined) &&
+    normalizeOptionalText(local.icon) === normalizeOptionalText(cloud.icon) &&
+    normalizeOptionalText(local.color) === normalizeOptionalText(cloud.color) &&
     localIsDefault === Boolean(cloud.is_default) &&
     Boolean(local.isArchived) === Boolean(cloud.is_archived)
   );

@@ -88,7 +88,7 @@ export class OutboxManager implements SyncPort {
   }
 
   public async processOutbox(): Promise<SyncResult> {
-    // Contract stub: The full sync orchestration is handled by SyncEngine
+    // Contract stub: The full sync orchestration is handled by ManualSyncCoordinator
     return {
       pushedCount: 0,
       pulledCount: 0,
