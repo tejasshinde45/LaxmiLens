@@ -8,6 +8,7 @@ import {
   UnauthorizedDatabaseAccessError
 } from './errors/DatabaseErrors';
 import { DexieAccountRepository } from './repositories/DexieAccountRepository';
+import { DexieAccountDeletionInspector } from './repositories/DexieAccountDeletionInspector';
 import { DexieTransactionRepository } from './repositories/DexieTransactionRepository';
 import { DexieCategoryRepository } from './repositories/DexieCategoryRepository';
 import { DexieProfileRepository } from './repositories/DexieProfileRepository';
@@ -106,6 +107,7 @@ import {
   UpdateAccountUseCase,
   ArchiveAccountUseCase,
   RestoreAccountUseCase,
+  DeleteAccountUseCase,
   GetTransactionsUseCase,
   CreateTransactionUseCase,
   UpdateTransactionUseCase,
@@ -188,6 +190,7 @@ export interface UserRepositories {
   updateAccountUseCase: UpdateAccountUseCase;
   archiveAccountUseCase: ArchiveAccountUseCase;
   restoreAccountUseCase: RestoreAccountUseCase;
+  deleteAccountUseCase: DeleteAccountUseCase;
 
   // Pre-wired transaction use cases
   getTransactionsUseCase: GetTransactionsUseCase;
@@ -820,6 +823,13 @@ export class DatabaseManager {
     const updateAccountUseCase = new UpdateAccountUseCase(accountRepo, outboxManager, unitOfWork);
     const archiveAccountUseCase = new ArchiveAccountUseCase(accountRepo, outboxManager, unitOfWork);
     const restoreAccountUseCase = new RestoreAccountUseCase(accountRepo, outboxManager, unitOfWork);
+    const accountDeletionInspector = new DexieAccountDeletionInspector(database);
+    const deleteAccountUseCase = new DeleteAccountUseCase(
+      accountRepo,
+      accountDeletionInspector,
+      outboxManager,
+      unitOfWork
+    );
 
     const getTransactionsUseCase = new GetTransactionsUseCase(transactionRepo);
     const createTransactionUseCase = new CreateTransactionUseCase(
@@ -1089,6 +1099,7 @@ export class DatabaseManager {
       updateAccountUseCase,
       archiveAccountUseCase,
       restoreAccountUseCase,
+      deleteAccountUseCase,
       getTransactionsUseCase,
       createTransactionUseCase,
       updateTransactionUseCase,

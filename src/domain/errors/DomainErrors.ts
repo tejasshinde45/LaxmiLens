@@ -101,3 +101,21 @@ export class InvalidDateRangeError extends DomainError {
     super(`Start date (${start.toISOString()}) must precede or equal end date (${end.toISOString()}).`, 'INVALID_DATE_RANGE');
   }
 }
+
+export class AccountDeletionBlockedError extends DomainError {
+  public readonly accountId: string;
+  public readonly reasons: ReadonlyArray<string>;
+
+  constructor(accountId: string, reasons: ReadonlyArray<string>) {
+    const summary =
+      reasons.length > 0
+        ? reasons.join(' ')
+        : 'Account cannot be deleted because dependent records still exist.';
+    super(
+      `Account '${accountId}' cannot be permanently deleted: ${summary}`,
+      'ACCOUNT_DELETION_BLOCKED'
+    );
+    this.accountId = accountId;
+    this.reasons = [...reasons];
+  }
+}

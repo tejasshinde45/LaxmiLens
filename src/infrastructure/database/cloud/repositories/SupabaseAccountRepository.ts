@@ -8,6 +8,7 @@ import {
   RangeCapableQuery
 } from './cloudPagination';
 import {
+  SyncAccountDependencyError,
   SyncAuthError,
   SyncConflictError,
   SyncDatabaseError
@@ -21,6 +22,7 @@ export interface ISupabaseAccountRepository {
     patch: Partial<CloudAccountRow>,
     expectedVersion: number
   ): Promise<CloudAccountRow>;
+  safeDelete?(id: string, userId: string, expectedVersion: number): Promise<void>;
   findById(id: string): Promise<CloudAccountRow | null>;
   findAll(userId: string): Promise<CloudAccountRow[]>;
   findPage?(
@@ -251,6 +253,165 @@ export class SupabaseAccountRepository implements ISupabaseAccountRepository {
       `Version mismatch on account '${id}': cloud version is ${current.version}, expected previous version was ${expectedVersion}.`,
       current
     );
+  }
+
+  /**
+   * Safely deletes an empty, non-system user account in Supabase Postgres using
+   * optimistic concurrency control and explicit cloud dependency checks before deletion.
+   * Never cascade-deletes transactions or financial dependencies.
+   */
+  public async safeDelete(id: string, userId: string, expectedVersion: number): Promise<void> {
+    if (!userId || userId.trim().length === 0) {
+      throw new SyncAuthError('Cannot delete account: userId is required for tenant isolation.');
+    }
+
+    // 1. Prefer server-side transactional RPC when present
+    if (typeof this.client.rpc === 'function') {
+      const { error: rpcError } = await this.client.rpc('safe_delete_account', {
+        p_account_id: id,
+        p_expected_version: expectedVersion
+      });
+
+      if (!rpcError) {
+        return;
+      }
+
+      const isMissingRpc =
+        rpcError.code === 'PGRST202' ||
+        rpcError.code === '42883' ||
+        (typeof rpcError.message === 'string' &&
+          rpcError.message.toLowerCase().includes('could not find the function'));
+
+      if (!isMissingRpc) {
+        if (rpcError.code === '23503') {
+          throw new SyncAccountDependencyError(
+            rpcError.message || `Account '${id}' still has dependent records in cloud.`,
+            id
+          );
+        }
+        if (
+          rpcError.code === '40001' ||
+          (typeof rpcError.message === 'string' &&
+            rpcError.message.toLowerCase().includes('version'))
+        ) {
+          throw new SyncConflictError(
+            rpcError.message || `Version conflict deleting cloud account '${id}'.`
+          );
+        }
+        if (rpcError.code === '42501') {
+          throw new SyncDatabaseError(
+            rpcError.message || `Permission denied deleting account '${id}'.`,
+            '42501',
+            rpcError
+          );
+        }
+        throw new SyncDatabaseError(rpcError.message, rpcError.code, rpcError);
+      }
+    }
+
+    // 2. Fallback when RPC is not installed: explicit ownership, version, and dependency verification
+    const current = await this.findById(id);
+    if (!current) {
+      // Idempotent delete retry: account already absent under current RLS context
+      return;
+    }
+
+    if (current.user_id !== userId) {
+      throw new SyncConflictError(`Account '${id}' belongs to a different user.`);
+    }
+
+    if (
+      (current.system_tag !== null && current.system_tag !== undefined) ||
+      current.name.trim().toLowerCase() === 'personal borrowings'
+    ) {
+      throw new SyncDatabaseError(
+        'RLS/system protection: System-managed accounts cannot be deleted.',
+        '42501'
+      );
+    }
+
+    if (current.version !== expectedVersion) {
+      throw new SyncConflictError(
+        `Version conflict on account '${id}': cloud version is ${current.version}, expected ${expectedVersion}.`,
+        current
+      );
+    }
+
+    // Verify zero cloud dependencies across transactions (including tombstones), recurring rules, borrowings, and repayments
+    const [txRes, ruleRes, borrowingRes, repaymentRes] = await Promise.all([
+      this.client
+        .from('transactions')
+        .select('id')
+        .eq('user_id', userId)
+        .or(`account_id.eq.${id},destination_account_id.eq.${id}`)
+        .limit(1),
+      this.client
+        .from('recurring_rules')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('account_id', id)
+        .limit(1),
+      this.client
+        .from('borrowings')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('receiving_account_id', id)
+        .limit(1),
+      this.client
+        .from('borrowing_repayments')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('payment_account_id', id)
+        .limit(1)
+    ]);
+
+    for (const depCheck of [txRes, ruleRes, borrowingRes, repaymentRes]) {
+      if (depCheck.error) {
+        throw new SyncDatabaseError(depCheck.error.message, depCheck.error.code, depCheck.error);
+      }
+      if (Array.isArray(depCheck.data) && depCheck.data.length > 0) {
+        throw new SyncAccountDependencyError(
+          `Cannot delete cloud account '${id}': referencing financial or schedule records still exist in cloud.`,
+          id
+        );
+      }
+    }
+
+    const { data, error } = await this.client
+      .from('accounts')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', userId)
+      .eq('version', expectedVersion)
+      .select()
+      .maybeSingle();
+
+    if (error) {
+      if (error.code === '23503') {
+        throw new SyncAccountDependencyError(
+          error.message || `Cloud foreign key restriction blocked deletion of account '${id}'.`,
+          id
+        );
+      }
+      if (error.code === '42501') {
+        throw new SyncDatabaseError(
+          'RLS permission denied: Cannot delete account for this user context.',
+          '42501',
+          error
+        );
+      }
+      throw new SyncDatabaseError(error.message, error.code, error);
+    }
+
+    if (!data) {
+      const remaining = await this.findById(id);
+      if (remaining) {
+        throw new SyncConflictError(
+          `Version conflict deleting account '${id}': cloud version changed to ${remaining.version} (expected ${expectedVersion}).`,
+          remaining
+        );
+      }
+    }
   }
 
   /**

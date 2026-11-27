@@ -6,5 +6,6 @@ export * from './components/AccountFilters';
 export * from './components/AccountSummaryMetrics';
 export * from './components/AccountFormModal';
 export * from './components/AccountDetailModal';
+export * from './components/DeleteAccountDialog';
 export * from './components/DevAccountRecoveryModal';
 export * from './schemas/accountSchemas';

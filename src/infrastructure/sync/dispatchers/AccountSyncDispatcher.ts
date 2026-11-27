@@ -47,15 +47,15 @@ export class AccountSyncDispatcher {
     }
   }
 
-  private async executeDispatch(entry: LocalOutboxRecord): Promise<CloudAccountRow> {
+  private async executeDispatch(entry: LocalOutboxRecord): Promise<CloudAccountRow | void> {
     // 1. Guard supported entity
     if (entry.entity !== 'accounts') {
       throw new Error(`AccountSyncDispatcher only processes 'accounts' entities. Received '${entry.entity}'.`);
     }
 
     // 2. Guard supported operations
-    if (entry.operation !== 'INSERT' && entry.operation !== 'UPDATE') {
-      throw new Error(`AccountSyncDispatcher only processes 'INSERT' and 'UPDATE'. Received '${entry.operation}'.`);
+    if (entry.operation !== 'INSERT' && entry.operation !== 'UPDATE' && entry.operation !== 'DELETE') {
+      throw new Error(`AccountSyncDispatcher only processes 'INSERT', 'UPDATE', and 'DELETE'. Received '${entry.operation}'.`);
     }
 
     // 3. Resolve and verify authenticated user
@@ -80,10 +80,9 @@ export class AccountSyncDispatcher {
           `Sync aborted: Outbox payload user_id '${payloadUserId}' does not match authenticated user '${currentUser.id}'.`
         );
       }
-    } else if (entry.operation === 'UPDATE') {
-      // UPDATE delta payloads do not require user_id.
-      // If present, it must match authenticated user; otherwise remote ownership filter uses currentUser.id.
-      const payloadUserId = entry.payload.user_id;
+    } else {
+      // UPDATE/DELETE delta payloads match authenticated user if present
+      const payloadUserId = entry.payload.user_id ?? entry.payload.userId;
       if (payloadUserId !== undefined && (typeof payloadUserId !== 'string' || payloadUserId !== currentUser.id)) {
         throw new SyncAuthError(
           `Sync aborted: Outbox payload user_id '${payloadUserId}' does not match authenticated user '${currentUser.id}'.`
@@ -105,7 +104,29 @@ export class AccountSyncDispatcher {
       return persisted;
     }
 
-    // 7. Execute UPDATE (including archive and restore)
+    // 7. Execute DELETE
+    if (entry.operation === 'DELETE') {
+      if (!this.accountRepo.safeDelete) {
+        throw new Error('SupabaseAccountRepository does not support safe account deletion.');
+      }
+
+      const rawExpected = entry.payload.expected_version ?? entry.payload.expectedVersion;
+      const rawVersion = entry.payload.version;
+      let expectedVersion: number;
+
+      if (typeof rawExpected === 'number' && Number.isSafeInteger(rawExpected) && rawExpected >= 1) {
+        expectedVersion = rawExpected;
+      } else if (typeof rawVersion === 'number' && Number.isSafeInteger(rawVersion) && rawVersion >= 2) {
+        expectedVersion = rawVersion - 1;
+      } else {
+        throw new Error(`Invalid version metadata in account DELETE payload for '${entry.entityId}'.`);
+      }
+
+      await this.accountRepo.safeDelete(entry.entityId, currentUser.id, expectedVersion);
+      return;
+    }
+
+    // 8. Execute UPDATE (including archive and restore)
     const entityId = entry.entityId;
     const targetVersion = entry.payload.version;
 

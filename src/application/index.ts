@@ -4,6 +4,7 @@ export * from './ports/SyncPort';
 export * from './ports/AuthPort';
 export * from './ports/UnitOfWork';
 export * from './ports/BackupStoragePort';
+export * from './ports/AccountDeletionPort';
 
 export * from './dto';
 
@@ -24,6 +25,7 @@ export * from './use-cases/accounts/CreateAccountUseCase';
 export * from './use-cases/accounts/UpdateAccountUseCase';
 export * from './use-cases/accounts/ArchiveAccountUseCase';
 export * from './use-cases/accounts/RestoreAccountUseCase';
+export * from './use-cases/accounts/DeleteAccountUseCase';
 export * from './use-cases/accounts/RecoverStaleAccountUseCase';
 export * from './use-cases/accounts/GetAccountBalanceUseCase';
 export * from './use-cases/accounts/GetAccountsWithBalanceUseCase';

@@ -101,6 +101,18 @@ export class DexieAccountRepository implements AccountRepository {
     });
   }
 
+  public async delete(id: AccountId, userId: UserId): Promise<void> {
+    const validatedUserId = validateUserId(userId);
+    const existing = await this.database.accounts.get(id);
+    if (!existing) {
+      throw new AccountNotFoundError(id);
+    }
+    if (existing.userId !== validatedUserId) {
+      throw new UnauthorizedEntityAccessError('Account', id);
+    }
+    await this.database.accounts.delete(id);
+  }
+
   private toDomain(record: LocalAccountRecord): Account {
     if (!record.userId) {
       throw new InvalidUserIdError(`Account record '${record.id}' is missing a valid userId.`);

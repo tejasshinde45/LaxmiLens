@@ -9,4 +9,5 @@ export interface AccountRepository {
   saveBatch(accounts: Account[]): Promise<void>;
   archive(id: AccountId, userId: UserId, version?: number): Promise<void>;
   restore(id: AccountId, userId: UserId, version?: number): Promise<void>;
+  delete?(id: AccountId, userId: UserId): Promise<void>;
 }

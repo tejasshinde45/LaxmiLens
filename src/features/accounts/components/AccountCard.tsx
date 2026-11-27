@@ -4,6 +4,7 @@ import {
   Edit2,
   Archive,
   RotateCcw,
+  Trash2,
   Eye,
   Landmark,
   PiggyBank,
@@ -32,6 +33,7 @@ export interface AccountCardProps {
   onEdit: (account: AccountWithBalanceDTO) => void;
   onArchive: (account: AccountWithBalanceDTO) => void;
   onRestore: (account: AccountWithBalanceDTO) => void;
+  onDelete?: (account: AccountWithBalanceDTO) => void;
 }
 
 const getAccountIcon = (type: AccountType) => {
@@ -56,7 +58,8 @@ export const AccountCard: React.FC<AccountCardProps> = ({
   onViewDetails,
   onEdit,
   onArchive,
-  onRestore
+  onRestore,
+  onDelete
 }) => {
   const typeKey = (account.accountType as AccountType) in ACCOUNT_TYPE_CONFIG
     ? (account.accountType as AccountType)
@@ -130,7 +133,7 @@ export const AccountCard: React.FC<AccountCardProps> = ({
                 <MoreVertical className="h-4 w-4" aria-hidden="true" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuContent align="end" className="w-48">
               <DropdownMenuItem onClick={() => onViewDetails(account)} className="cursor-pointer">
                 <Eye className="h-4 w-4 mr-2 text-[#858078]" />
                 <span>View Details</span>
@@ -158,6 +161,17 @@ export const AccountCard: React.FC<AccountCardProps> = ({
                 >
                   <Archive className="h-4 w-4 mr-2 text-[#D9827C]" />
                   <span>Archive</span>
+                </DropdownMenuItem>
+              )}
+
+              {onDelete && !isPersonalBorrowings && !account.systemTag && (
+                <DropdownMenuItem
+                  variant="danger"
+                  onClick={() => onDelete(account)}
+                  className="cursor-pointer"
+                >
+                  <Trash2 className="h-4 w-4 mr-2 text-[#D9827C]" />
+                  <span>Delete Account</span>
                 </DropdownMenuItem>
               )}
             </DropdownMenuContent>

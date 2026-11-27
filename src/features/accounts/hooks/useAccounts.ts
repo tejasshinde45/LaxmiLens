@@ -1,7 +1,16 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useContext, useState } from 'react';
+import {
+  useQuery,
+  useMutation,
+  useQueryClient,
+  QueryClientContext
+} from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { queryClient as globalQueryClient } from '@/lib/queryClient';
+import { AuthContext } from '@/features/auth/context/AuthContext';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { DexieAccountRepository } from '@/infrastructure/database/local/repositories/DexieAccountRepository';
+import { DexieAccountDeletionInspector } from '@/infrastructure/database/local/repositories/DexieAccountDeletionInspector';
 import { DexieTransactionRepository } from '@/infrastructure/database/local/repositories/DexieTransactionRepository';
 import { OutboxManager } from '@/infrastructure/sync/OutboxManager';
 import { DexieUnitOfWork } from '@/infrastructure/database/local/DexieUnitOfWork';
@@ -11,6 +20,8 @@ import {
   UpdateAccountUseCase,
   ArchiveAccountUseCase,
   RestoreAccountUseCase,
+  DeleteAccountUseCase,
+  AccountDeletionEligibility,
   GetAccountsWithBalanceUseCase,
   AccountWithBalanceDTO
 } from '@/application';
@@ -46,6 +57,13 @@ const fallbackArchiveAccountUseCase = new ArchiveAccountUseCase(
 );
 const fallbackRestoreAccountUseCase = new RestoreAccountUseCase(
   fallbackAccountRepo,
+  fallbackSyncPort,
+  fallbackUow
+);
+const fallbackAccountDeletionInspector = new DexieAccountDeletionInspector();
+const fallbackDeleteAccountUseCase = new DeleteAccountUseCase(
+  fallbackAccountRepo,
+  fallbackAccountDeletionInspector,
   fallbackSyncPort,
   fallbackUow
 );
@@ -320,5 +338,65 @@ export function useAccounts() {
     isArchiving: archiveAccountMutation.isPending,
     restoreAccount: restoreAccountMutation.mutateAsync,
     isRestoring: restoreAccountMutation.isPending
+  };
+}
+
+export function useAccountDeletion() {
+  const auth = useContext(AuthContext);
+  const user = auth?.user ?? null;
+  const contextQueryClient = useContext(QueryClientContext);
+  const activeQueryClient = contextQueryClient ?? globalQueryClient;
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const resolveDeleteUseCase = useCallback(async () => {
+    try {
+      const repos = await defaultDatabaseManager.getActiveRepositories();
+      return repos.deleteAccountUseCase;
+    } catch {
+      return fallbackDeleteAccountUseCase;
+    }
+  }, []);
+
+  const checkEligibility = useCallback(
+    async (accountId: string): Promise<AccountDeletionEligibility> => {
+      if (!user?.id) {
+        throw new Error('You must be signed in to check account deletion eligibility.');
+      }
+      const useCase = await resolveDeleteUseCase();
+      return useCase.checkEligibility(accountId, user.id);
+    },
+    [resolveDeleteUseCase, user?.id]
+  );
+
+  const deleteAccount = useCallback(
+    async (accountId: string): Promise<void> => {
+      if (!user?.id) {
+        throw new Error('You must be signed in to permanently delete an account.');
+      }
+      setIsDeleting(true);
+      try {
+        const useCase = await resolveDeleteUseCase();
+        await useCase.execute(accountId, user.id);
+        activeQueryClient.invalidateQueries({ queryKey: ['accounts', user?.id] });
+        activeQueryClient.invalidateQueries({ queryKey: ['accountSyncPendingCount', user?.id] });
+        activeQueryClient.invalidateQueries({ queryKey: ['syncPendingCount', user?.id] });
+        activeQueryClient.invalidateQueries({ queryKey: ['pendingOutboxEntries', user?.id] });
+        activeQueryClient.invalidateQueries({ queryKey: ['reports', user?.id] });
+        toast.success('Account permanently deleted locally');
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Could not delete account';
+        toast.error(msg);
+        throw err;
+      } finally {
+        setIsDeleting(false);
+      }
+    },
+    [activeQueryClient, resolveDeleteUseCase, user?.id]
+  );
+
+  return {
+    checkEligibility,
+    deleteAccount,
+    isDeleting
   };
 }

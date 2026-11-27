@@ -376,21 +376,43 @@ describe('AccountSyncDispatcher', () => {
       expect(mockOutboxManager.markFailure).toHaveBeenCalledWith(107, expect.stringContaining('accounts'));
     });
 
-    it('rejects unsupported operation (e.g. DELETE)', async () => {
+    it('rejects unsupported operation (e.g. UPSERT)', async () => {
       const entry: LocalOutboxRecord = {
         id: 108,
         entity: 'accounts',
         entityId: validId,
-        operation: 'DELETE',
+        operation: 'UPSERT' as any,
         payload: { id: validId, user_id: validUserId },
         idempotencyKey: 'k-8',
         attempts: 0,
         createdAt: new Date().toISOString()
       };
 
-      await expect(dispatcher.dispatch(entry)).rejects.toThrow(/only processes 'INSERT' and 'UPDATE'/);
+      await expect(dispatcher.dispatch(entry)).rejects.toThrow(
+        /only processes 'INSERT', 'UPDATE', and 'DELETE'/
+      );
       expect(mockOutboxManager.markSuccess).not.toHaveBeenCalled();
-      expect(mockOutboxManager.markFailure).toHaveBeenCalledWith(108, expect.stringContaining('DELETE'));
+      expect(mockOutboxManager.markFailure).toHaveBeenCalledWith(108, expect.stringContaining('UPSERT'));
+    });
+
+    it('rejects DELETE cleanly when repository lacks safeDelete capability', async () => {
+      const entry: LocalOutboxRecord = {
+        id: 1080,
+        entity: 'accounts',
+        entityId: validId,
+        operation: 'DELETE',
+        payload: { id: validId, user_id: validUserId, expected_version: 1, version: 2 },
+        idempotencyKey: 'k-8-del',
+        attempts: 0,
+        createdAt: new Date().toISOString()
+      };
+
+      await expect(dispatcher.dispatch(entry)).rejects.toThrow(/does not support safe account deletion/);
+      expect(mockOutboxManager.markSuccess).not.toHaveBeenCalled();
+      expect(mockOutboxManager.markFailure).toHaveBeenCalledWith(
+        1080,
+        expect.stringContaining('safe account deletion')
+      );
     });
   });
 

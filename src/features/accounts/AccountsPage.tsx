@@ -13,12 +13,13 @@ import {
   DialogDescription,
   DialogFooter
 } from '@/components/ui/Dialog';
-import { useAccounts } from './hooks/useAccounts';
+import { useAccounts, useAccountDeletion } from './hooks/useAccounts';
 import { AccountSummaryMetrics } from './components/AccountSummaryMetrics';
 import { AccountFilters, AccountFilterTab } from './components/AccountFilters';
 import { AccountCard } from './components/AccountCard';
 import { AccountFormModal } from './components/AccountFormModal';
 import { AccountDetailModal } from './components/AccountDetailModal';
+import { DeleteAccountDialog } from './components/DeleteAccountDialog';
 import { AccountWithBalanceDTO } from '@/application/dto/AccountDTO';
 import { CreateAccountFormValues, EditAccountFormValues } from './schemas/accountSchemas';
 
@@ -39,6 +40,12 @@ export const AccountsPage: React.FC = () => {
     restoreAccount
   } = useAccounts();
 
+  const {
+    checkEligibility: checkDeleteEligibility,
+    deleteAccount,
+    isDeleting
+  } = useAccountDeletion();
+
   // Filter & Search State
   const [activeTab, setActiveTab] = useState<AccountFilterTab>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -48,6 +55,7 @@ export const AccountsPage: React.FC = () => {
   const [accountToEdit, setAccountToEdit] = useState<AccountWithBalanceDTO | null>(null);
   const [accountToView, setAccountToView] = useState<AccountWithBalanceDTO | null>(null);
   const [accountToArchive, setAccountToArchive] = useState<AccountWithBalanceDTO | null>(null);
+  const [accountToDelete, setAccountToDelete] = useState<AccountWithBalanceDTO | null>(null);
 
   // Compute filter counts
   const counts = useMemo(() => {
@@ -252,6 +260,7 @@ export const AccountsPage: React.FC = () => {
               onEdit={(acc) => setAccountToEdit(acc)}
               onArchive={(acc) => setAccountToArchive(acc)}
               onRestore={handleRestoreAccount}
+              onDelete={(acc) => setAccountToDelete(acc)}
             />
           ))}
         </div>
@@ -342,6 +351,16 @@ export const AccountsPage: React.FC = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Permanent Account Deletion Dialog */}
+      <DeleteAccountDialog
+        isOpen={!!accountToDelete}
+        onClose={() => setAccountToDelete(null)}
+        account={accountToDelete}
+        checkEligibility={checkDeleteEligibility}
+        onConfirmDelete={deleteAccount}
+        isDeleting={isDeleting}
+      />
     </div>
   );
 };
