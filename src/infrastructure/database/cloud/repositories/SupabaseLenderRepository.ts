@@ -2,6 +2,12 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { supabase } from '../supabaseClient';
 import { CloudLenderRow } from '../mappers/LenderMapper';
 import {
+  DEFAULT_CLOUD_PAGE_SIZE,
+  fetchAllOrderedPages,
+  hasRangeMethod,
+  RangeCapableQuery
+} from './cloudPagination';
+import {
   SyncAuthError,
   SyncConflictError,
   SyncDatabaseError
@@ -18,6 +24,10 @@ export interface ISupabaseLenderRepository {
   findById(id: string, userId: string): Promise<CloudLenderRow | null>;
   findByName(name: string, userId: string): Promise<CloudLenderRow | null>;
   findAll(userId: string): Promise<CloudLenderRow[]>;
+  findPage?(
+    userId: string,
+    options?: { offset?: number; limit?: number }
+  ): Promise<{ rows: CloudLenderRow[]; hasMore: boolean; nextOffset: number }>;
 }
 
 export class SupabaseLenderRepository implements ISupabaseLenderRepository {
@@ -224,24 +234,98 @@ export class SupabaseLenderRepository implements ISupabaseLenderRepository {
   }
 
   /**
-   * Retrieves all lenders belonging to the specified user.
+   * Retrieves a deterministic page of lenders belonging to the specified user.
+   */
+  public async findPage(
+    userId: string,
+    options: { offset?: number; limit?: number } = {}
+  ): Promise<{ rows: CloudLenderRow[]; hasMore: boolean; nextOffset: number }> {
+    if (!userId || userId.trim().length === 0) {
+      throw new SyncAuthError('Cannot query lenders: userId is required for tenant isolation.');
+    }
+
+    const safeOffset = Math.max(0, Math.floor(options.offset ?? 0));
+    const safeLimit = Math.max(
+      1,
+      Math.min(1000, Math.floor(options.limit ?? DEFAULT_CLOUD_PAGE_SIZE))
+    );
+
+    const orderedQuery = this.client
+      .from('lenders')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true });
+
+    const { data, error } = hasRangeMethod<CloudLenderRow>(orderedQuery)
+      ? await orderedQuery.range(safeOffset, safeOffset + safeLimit)
+      : await orderedQuery;
+
+    if (error) {
+      throw new SyncDatabaseError(error.message, error.code, error);
+    }
+
+    const batch = (data || []) as CloudLenderRow[];
+    const hasMore = hasRangeMethod<CloudLenderRow>(orderedQuery)
+      ? batch.length > safeLimit
+      : false;
+    const rows = hasMore ? batch.slice(0, safeLimit) : batch;
+
+    for (const row of rows) {
+      if (row.user_id !== userId) {
+        throw new SyncAuthError(`Retrieved lender '${row.id}' belongs to another user.`);
+      }
+    }
+
+    return {
+      rows,
+      hasMore,
+      nextOffset: safeOffset + rows.length
+    };
+  }
+
+  /**
+   * Retrieves all lenders belonging to the specified user without silent truncation.
    */
   public async findAll(userId: string): Promise<CloudLenderRow[]> {
     if (!userId || userId.trim().length === 0) {
       throw new SyncAuthError('Cannot query lenders: userId is required for tenant isolation.');
     }
 
-    const { data, error } = await this.client
+    const baseQuery = this.client
       .from('lenders')
       .select('*')
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
 
-    if (error) {
-      throw new SyncDatabaseError(error.message, error.code, error);
+    let rows: CloudLenderRow[];
+    if (!hasRangeMethod<CloudLenderRow>(baseQuery)) {
+      const { data, error } = await baseQuery;
+      if (error) {
+        throw new SyncDatabaseError(error.message, error.code, error);
+      }
+      rows = (data || []) as CloudLenderRow[];
+    } else {
+      rows = await fetchAllOrderedPages<CloudLenderRow>(
+        () =>
+          this.client
+            .from('lenders')
+            .select('*')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: true })
+            .order('id', { ascending: true }) as unknown as RangeCapableQuery<CloudLenderRow>,
+        DEFAULT_CLOUD_PAGE_SIZE,
+        (err) => new SyncDatabaseError(err.message, err.code, err)
+      );
     }
 
-    return (data || []) as CloudLenderRow[];
+    for (const row of rows) {
+      if (row.user_id !== userId) {
+        throw new SyncAuthError(`Retrieved lender '${row.id}' belongs to another user.`);
+      }
+    }
+
+    return rows;
   }
 
   private verifyPersistedRow(

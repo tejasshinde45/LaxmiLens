@@ -11,6 +11,7 @@ import {
   InvalidUserIdError,
   TransferAccountMismatchError
 } from '@/domain/errors/DomainErrors';
+import { LocalTransactionRecord } from '@/infrastructure/database/local/schema';
 
 export interface CloudTransactionRow {
   id: string; // UUID
@@ -39,6 +40,123 @@ const VALID_TRANSACTION_TYPES: ReadonlySet<string> = new Set([
 ]);
 
 export class TransactionMapper {
+  /**
+   * Validates structural, monetary, transfer, and tombstone fields of a CloudTransactionRow.
+   */
+  public static validateCloudRow(row: CloudTransactionRow): void {
+    if (!row || typeof row !== 'object') {
+      throw new Error('Malformed cloud transaction row: expected object.');
+    }
+    if (typeof row.id !== 'string' || !isValidUuid(row.id)) {
+      throw new Error(`Invalid cloud transaction ID '${row.id}': must be a valid UUID.`);
+    }
+    validateUserId(row.user_id);
+
+    if (!VALID_TRANSACTION_TYPES.has(row.type)) {
+      throw new Error(`Invalid transaction type '${row.type}' from cloud row.`);
+    }
+    if (
+      row.amount_paise === undefined ||
+      row.amount_paise === null ||
+      typeof row.amount_paise !== 'number' ||
+      !Number.isSafeInteger(row.amount_paise) ||
+      row.amount_paise <= 0
+    ) {
+      throw new InvalidMoneyError('amount_paise from cloud is not a positive safe integer in paise.');
+    }
+    if (typeof row.account_id !== 'string' || !isValidUuid(row.account_id)) {
+      throw new Error(`Invalid cloud transaction account_id '${row.account_id}' on '${row.id}'.`);
+    }
+    if (row.type === 'transfer') {
+      if (
+        typeof row.destination_account_id !== 'string' ||
+        !isValidUuid(row.destination_account_id) ||
+        row.destination_account_id === row.account_id
+      ) {
+        throw new TransferAccountMismatchError(
+          `Invalid transfer destination_account_id on cloud transaction '${row.id}'.`
+        );
+      }
+    }
+    if (
+      row.category_id !== null &&
+      row.category_id !== undefined &&
+      (typeof row.category_id !== 'string' || !isValidUuid(row.category_id))
+    ) {
+      throw new Error(`Invalid cloud transaction category_id '${row.category_id}' on '${row.id}'.`);
+    }
+    if (typeof row.title !== 'string' || row.title.trim().length === 0) {
+      throw new Error(`Invalid cloud transaction title on '${row.id}'.`);
+    }
+    if (typeof row.idempotency_key !== 'string' || row.idempotency_key.trim().length === 0) {
+      throw new Error(`Missing cloud transaction idempotency_key on '${row.id}'.`);
+    }
+    const resolvedDate = new Date(row.transaction_date);
+    if (isNaN(resolvedDate.getTime())) {
+      throw new Error(`Invalid transaction_date '${row.transaction_date}' from cloud row.`);
+    }
+    if (row.deleted_at) {
+      const deleted = new Date(row.deleted_at);
+      if (isNaN(deleted.getTime())) {
+        throw new Error(`Invalid deleted_at '${row.deleted_at}' from cloud row.`);
+      }
+    }
+    if (typeof row.version !== 'number' || !Number.isSafeInteger(row.version) || row.version < 1) {
+      throw new Error(`Invalid cloud transaction version '${row.version}' on '${row.id}'.`);
+    }
+  }
+
+  /**
+   * Converts a CloudTransactionRow to a LocalTransactionRecord for Dexie persistence.
+   */
+  public static toLocalRecord(
+    row: CloudTransactionRow,
+    resolvedLocalCategoryId?: string | null
+  ): LocalTransactionRecord {
+    this.validateCloudRow(row);
+    const nowIso = new Date().toISOString();
+    const txDateIso = new Date(row.transaction_date).toISOString();
+    const deletedAtIso = row.deleted_at ? new Date(row.deleted_at).toISOString() : null;
+    const categoryId =
+      row.type === 'transfer'
+        ? undefined
+        : resolvedLocalCategoryId !== undefined
+          ? (resolvedLocalCategoryId ?? undefined)
+          : (row.category_id ?? undefined);
+    const destId = row.destination_account_id ?? undefined;
+    const note = row.note ?? undefined;
+    const title = row.title.trim();
+
+    return {
+      id: row.id.trim(),
+      userId: validateUserId(row.user_id),
+      type: row.type,
+      amountPaise: row.amount_paise,
+      currency: row.currency?.trim() || 'INR',
+      accountId: row.account_id.trim(),
+      destinationAccountId: destId,
+      categoryId,
+      title,
+      note,
+      transactionDate: txDateIso,
+      deletedAt: deletedAtIso,
+      version: row.version,
+      deviceId: row.device_id ?? undefined,
+      idempotencyKey: row.idempotency_key.trim(),
+      createdAt: row.created_at ? new Date(row.created_at).toISOString() : nowIso,
+      updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : nowIso,
+
+      // Compatibility fields matching DexieTransactionRepository.toRecord
+      targetAccountId: destId,
+      description: title,
+      notes: note,
+      date: txDateIso,
+      amountInPaise: row.amount_paise,
+      isDeleted: deletedAtIso !== null,
+      status: 'cleared'
+    };
+  }
+
   /**
    * Converts a raw PostgreSQL cloud transaction row to the domain Transaction entity.
    */

@@ -6,6 +6,12 @@ import { ISupabaseLenderRepository } from './SupabaseLenderRepository';
 import { ISupabaseAccountRepository } from './SupabaseAccountRepository';
 import { ISupabaseTransactionRepository } from './SupabaseTransactionRepository';
 import {
+  DEFAULT_CLOUD_PAGE_SIZE,
+  fetchAllOrderedPages,
+  hasRangeMethod,
+  RangeCapableQuery
+} from './cloudPagination';
+import {
   SyncAuthError,
   SyncConflictError,
   SyncDatabaseError,
@@ -21,6 +27,10 @@ export interface ISupabaseBorrowingRepaymentRepository {
   findById(id: string, userId: string): Promise<CloudBorrowingRepaymentRow | null>;
   findByBorrowingId(borrowingId: string, userId: string): Promise<CloudBorrowingRepaymentRow[]>;
   findAll(userId: string): Promise<CloudBorrowingRepaymentRow[]>;
+  findPage?(
+    userId: string,
+    options?: { offset?: number; limit?: number }
+  ): Promise<{ rows: CloudBorrowingRepaymentRow[]; hasMore: boolean; nextOffset: number }>;
 }
 
 export class SupabaseBorrowingRepaymentRepository implements ISupabaseBorrowingRepaymentRepository {
@@ -164,24 +174,98 @@ export class SupabaseBorrowingRepaymentRepository implements ISupabaseBorrowingR
   }
 
   /**
-   * Retrieves all borrowing repayments belonging to the specified user.
+   * Retrieves a deterministic page of borrowing repayments belonging to the specified user.
+   */
+  public async findPage(
+    userId: string,
+    options: { offset?: number; limit?: number } = {}
+  ): Promise<{ rows: CloudBorrowingRepaymentRow[]; hasMore: boolean; nextOffset: number }> {
+    if (!userId || userId.trim().length === 0) {
+      throw new SyncAuthError('Cannot query repayments: userId is required for tenant isolation.');
+    }
+
+    const safeOffset = Math.max(0, Math.floor(options.offset ?? 0));
+    const safeLimit = Math.max(
+      1,
+      Math.min(1000, Math.floor(options.limit ?? DEFAULT_CLOUD_PAGE_SIZE))
+    );
+
+    const orderedQuery = this.client
+      .from('borrowing_repayments')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true });
+
+    const { data, error } = hasRangeMethod<CloudBorrowingRepaymentRow>(orderedQuery)
+      ? await orderedQuery.range(safeOffset, safeOffset + safeLimit)
+      : await orderedQuery;
+
+    if (error) {
+      throw new SyncDatabaseError(error.message, error.code, error);
+    }
+
+    const batch = (data || []) as CloudBorrowingRepaymentRow[];
+    const hasMore = hasRangeMethod<CloudBorrowingRepaymentRow>(orderedQuery)
+      ? batch.length > safeLimit
+      : false;
+    const rows = hasMore ? batch.slice(0, safeLimit) : batch;
+
+    for (const row of rows) {
+      if (row.user_id !== userId) {
+        throw new SyncAuthError(`Retrieved repayment '${row.id}' belongs to another user.`);
+      }
+    }
+
+    return {
+      rows,
+      hasMore,
+      nextOffset: safeOffset + rows.length
+    };
+  }
+
+  /**
+   * Retrieves all borrowing repayments belonging to the specified user without silent truncation.
    */
   public async findAll(userId: string): Promise<CloudBorrowingRepaymentRow[]> {
     if (!userId || userId.trim().length === 0) {
       throw new SyncAuthError('Cannot query repayments: userId is required for tenant isolation.');
     }
 
-    const { data, error } = await this.client
+    const baseQuery = this.client
       .from('borrowing_repayments')
       .select('*')
       .eq('user_id', userId)
       .order('repayment_date', { ascending: false });
 
-    if (error) {
-      throw new SyncDatabaseError(error.message, error.code, error);
+    let rows: CloudBorrowingRepaymentRow[];
+    if (!hasRangeMethod<CloudBorrowingRepaymentRow>(baseQuery)) {
+      const { data, error } = await baseQuery;
+      if (error) {
+        throw new SyncDatabaseError(error.message, error.code, error);
+      }
+      rows = (data || []) as CloudBorrowingRepaymentRow[];
+    } else {
+      rows = await fetchAllOrderedPages<CloudBorrowingRepaymentRow>(
+        () =>
+          this.client
+            .from('borrowing_repayments')
+            .select('*')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: true })
+            .order('id', { ascending: true }) as unknown as RangeCapableQuery<CloudBorrowingRepaymentRow>,
+        DEFAULT_CLOUD_PAGE_SIZE,
+        (err) => new SyncDatabaseError(err.message, err.code, err)
+      );
     }
 
-    return (data || []) as CloudBorrowingRepaymentRow[];
+    for (const row of rows) {
+      if (row.user_id !== userId) {
+        throw new SyncAuthError(`Retrieved repayment '${row.id}' belongs to another user.`);
+      }
+    }
+
+    return rows;
   }
 
   private async reconcileDuplicateInsert(attempted: CloudBorrowingRepaymentRow): Promise<CloudBorrowingRepaymentRow> {

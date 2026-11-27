@@ -3,9 +3,11 @@ import { ISupabaseAccountRepository } from '@/infrastructure/database/cloud/repo
 import { AuthPort } from '@/application/ports/AuthPort';
 import { OutboxManager } from '@/infrastructure/sync/OutboxManager';
 import { AccountMapper, CloudAccountRow } from '@/infrastructure/database/cloud/mappers/AccountMapper';
-import { SyncAuthError } from '@/infrastructure/sync/errors/SyncErrors';
+import { SyncAuthError, SyncInProgressError } from '@/infrastructure/sync/errors/SyncErrors';
 
 export class AccountSyncDispatcher {
+  private readonly inFlightAccounts: Set<string> = new Set();
+
   constructor(
     private readonly accountRepo: ISupabaseAccountRepository,
     private readonly authPort: AuthPort,
@@ -19,6 +21,14 @@ export class AccountSyncDispatcher {
    * or records failure metadata via markFailure on error.
    */
   public async dispatch(entry: LocalOutboxRecord): Promise<void> {
+    if (this.inFlightAccounts.has(entry.entityId)) {
+      throw new SyncInProgressError(
+        `Cannot dispatch outbox entry for account '${entry.entityId}': An operation for this account is already in progress.`
+      );
+    }
+
+    this.inFlightAccounts.add(entry.entityId);
+
     try {
       await this.executeDispatch(entry);
 
@@ -32,6 +42,8 @@ export class AccountSyncDispatcher {
         await this.outboxManager.markFailure(entry.id, errorMsg);
       }
       throw error;
+    } finally {
+      this.inFlightAccounts.delete(entry.entityId);
     }
   }
 

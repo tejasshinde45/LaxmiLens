@@ -101,6 +101,31 @@ export class CategorySyncDispatcher {
     // 6. Execute INSERT
     if (entry.operation === 'INSERT') {
       const cloudRow = CategoryMapper.mapCreatePayload(entry.payload);
+
+      // If a default category was already mapped to an existing cloud default, confirm it without duplicating
+      if (cloudRow.is_default && this.mappingService) {
+        const mappedCloudId = await this.mappingService.getMapping(entry.entityId, currentUser.id);
+        if (mappedCloudId && mappedCloudId !== entry.entityId) {
+          const existingCloudDefault = await this.categoryRepo.findById(
+            mappedCloudId,
+            currentUser.id
+          );
+          if (
+            existingCloudDefault &&
+            existingCloudDefault.user_id === currentUser.id &&
+            existingCloudDefault.is_default &&
+            existingCloudDefault.type === cloudRow.type
+          ) {
+            await this.mappingService.setMapping(
+              entry.entityId,
+              existingCloudDefault.id,
+              currentUser.id
+            );
+            return existingCloudDefault;
+          }
+        }
+      }
+
       const persisted = await this.categoryRepo.insert(cloudRow);
 
       if (persisted.user_id !== currentUser.id) {

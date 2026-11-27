@@ -5,6 +5,7 @@ import {
   isValidUuid
 } from '@/domain/value-objects/Identifiers';
 import { InvalidUserIdError } from '@/domain/errors/DomainErrors';
+import { LocalCategoryRecord } from '@/infrastructure/database/local/schema';
 
 export interface CloudCategoryRow {
   id: string; // UUID
@@ -23,6 +24,57 @@ export interface CloudCategoryRow {
 const VALID_CATEGORY_TYPES: ReadonlySet<string> = new Set(['income', 'expense']);
 
 export class CategoryMapper {
+  /**
+   * Validates structural and classification fields of a CloudCategoryRow.
+   */
+  public static validateCloudRow(row: CloudCategoryRow): void {
+    if (!row || typeof row !== 'object') {
+      throw new Error('Malformed cloud category row: expected object.');
+    }
+    if (typeof row.id !== 'string' || !isValidUuid(row.id)) {
+      throw new Error(`Invalid cloud category ID '${row.id}': must be a valid UUID.`);
+    }
+    validateUserId(row.user_id);
+
+    if (typeof row.name !== 'string' || row.name.trim().length === 0) {
+      throw new Error(`Invalid cloud category name on '${row.id}': must not be empty.`);
+    }
+    if (!VALID_CATEGORY_TYPES.has(row.type)) {
+      throw new Error(`Invalid category type '${row.type}' from cloud row.`);
+    }
+    if (typeof row.version !== 'number' || !Number.isSafeInteger(row.version) || row.version < 1) {
+      throw new Error(`Invalid cloud category version '${row.version}' on '${row.id}'.`);
+    }
+  }
+
+  /**
+   * Converts a CloudCategoryRow to a LocalCategoryRecord for Dexie persistence.
+   */
+  public static toLocalRecord(
+    row: CloudCategoryRow,
+    overrideLocalId?: string
+  ): LocalCategoryRecord {
+    this.validateCloudRow(row);
+    const nowIso = new Date().toISOString();
+    const isDefault = Boolean(row.is_default);
+    return {
+      id: (overrideLocalId ?? row.id).trim(),
+      userId: validateUserId(row.user_id),
+      name: row.name.trim(),
+      type: row.type,
+      icon: row.icon ?? undefined,
+      color: row.color ?? undefined,
+      isDefault,
+      isArchived: Boolean(row.is_archived),
+      version: row.version,
+      createdAt: row.created_at ? new Date(row.created_at).toISOString() : nowIso,
+      updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : nowIso,
+
+      // Compatibility
+      isSystem: isDefault
+    };
+  }
+
   /**
    * Converts a raw PostgreSQL cloud category row to the domain Category entity.
    */

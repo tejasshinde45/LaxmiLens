@@ -9,6 +9,7 @@ import {
 } from '@/domain/value-objects/Identifiers';
 import { InvalidUserIdError } from '@/domain/errors/DomainErrors';
 import { InvalidBorrowingAmountError } from '@/domain/errors/BorrowingErrors';
+import { LocalBorrowingRecord } from '@/infrastructure/database/local/schema';
 
 export interface CloudBorrowingRow {
   id: string; // UUID
@@ -28,6 +29,69 @@ export interface CloudBorrowingRow {
 const VALID_BORROWING_STATUSES: ReadonlySet<string> = new Set(['active', 'repaid']);
 
 export class BorrowingMapper {
+  /**
+   * Validates structural, monetary, date, and relational UUID fields of a CloudBorrowingRow.
+   */
+  public static validateCloudRow(row: CloudBorrowingRow): void {
+    if (!row || typeof row !== 'object') {
+      throw new Error('Malformed cloud borrowing row: expected object.');
+    }
+    if (typeof row.id !== 'string' || !isValidUuid(row.id)) {
+      throw new Error(`Invalid cloud borrowing ID '${row.id}': must be a valid UUID.`);
+    }
+    validateUserId(row.user_id);
+
+    if (typeof row.lender_id !== 'string' || !isValidUuid(row.lender_id)) {
+      throw new Error(`Invalid cloud borrowing lender_id '${row.lender_id}' on '${row.id}'.`);
+    }
+    if (
+      typeof row.amount_paise !== 'number' ||
+      !Number.isSafeInteger(row.amount_paise) ||
+      row.amount_paise <= 0
+    ) {
+      throw new InvalidBorrowingAmountError();
+    }
+    if (isNaN(new Date(row.borrowing_date).getTime())) {
+      throw new Error(`Invalid cloud borrowing_date '${row.borrowing_date}' on '${row.id}'.`);
+    }
+    if (row.due_date !== null && row.due_date !== undefined && isNaN(new Date(row.due_date).getTime())) {
+      throw new Error(`Invalid cloud due_date '${row.due_date}' on '${row.id}'.`);
+    }
+    if (typeof row.receiving_account_id !== 'string' || !isValidUuid(row.receiving_account_id)) {
+      throw new Error(
+        `Invalid cloud receiving_account_id '${row.receiving_account_id}' on '${row.id}'.`
+      );
+    }
+    if (typeof row.transaction_id !== 'string' || !isValidUuid(row.transaction_id)) {
+      throw new Error(`Invalid cloud transaction_id '${row.transaction_id}' on '${row.id}'.`);
+    }
+    if (!VALID_BORROWING_STATUSES.has(row.status)) {
+      throw new Error(`Invalid borrowing status '${row.status}' from cloud row.`);
+    }
+  }
+
+  /**
+   * Converts a CloudBorrowingRow to a LocalBorrowingRecord for Dexie persistence.
+   */
+  public static toLocalRecord(row: CloudBorrowingRow): LocalBorrowingRecord {
+    this.validateCloudRow(row);
+    const nowIso = new Date().toISOString();
+    return {
+      id: row.id.trim(),
+      userId: validateUserId(row.user_id),
+      lenderId: row.lender_id.trim(),
+      amountPaise: row.amount_paise,
+      borrowingDate: new Date(row.borrowing_date).toISOString(),
+      dueDate: row.due_date ? new Date(row.due_date).toISOString() : null,
+      receivingAccountId: row.receiving_account_id.trim(),
+      transactionId: row.transaction_id.trim(),
+      status: row.status,
+      notes: row.notes ?? undefined,
+      createdAt: row.created_at ? new Date(row.created_at).toISOString() : nowIso,
+      updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : nowIso
+    };
+  }
+
   /**
    * Converts a raw PostgreSQL cloud borrowing row to the domain Borrowing entity.
    */

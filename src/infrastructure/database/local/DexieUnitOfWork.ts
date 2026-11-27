@@ -1,5 +1,6 @@
 import { UnitOfWork } from '@/application/ports/UnitOfWork';
 import { db, LaxmiLensDB } from './DexieDatabase';
+import { LocalWriteCommitNotifier } from '@/infrastructure/sync/LocalWriteCommitNotifier';
 import { Table } from 'dexie';
 
 export class DexieUnitOfWork implements UnitOfWork {
@@ -7,7 +8,8 @@ export class DexieUnitOfWork implements UnitOfWork {
 
   constructor(
     private readonly database: LaxmiLensDB = db,
-    tables?: Table<any, any>[]
+    tables?: Table<any, any>[],
+    private readonly commitNotifier?: LocalWriteCommitNotifier
   ) {
     if (tables) {
       this.tables = tables;
@@ -31,8 +33,15 @@ export class DexieUnitOfWork implements UnitOfWork {
   }
 
   public async run<T>(work: () => Promise<T>): Promise<T> {
-    return this.database.transaction('rw', this.tables, async () => {
-      return await work();
-    });
+    const executeTransaction = () =>
+      this.database.transaction('rw', this.tables, async () => {
+        return await work();
+      });
+
+    if (this.commitNotifier) {
+      return this.commitNotifier.runInUowScope(executeTransaction);
+    }
+
+    return executeTransaction();
   }
 }

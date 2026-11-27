@@ -20,10 +20,23 @@ import { DexieNotificationRepository } from './repositories/DexieNotificationRep
 import { DexieNotificationPreferenceRepository } from './repositories/DexieNotificationPreferenceRepository';
 import { DexieBackupRepository } from './repositories/DexieBackupRepository';
 import { OutboxManager } from '@/infrastructure/sync/OutboxManager';
+import { LocalWriteCommitNotifier } from '@/infrastructure/sync/LocalWriteCommitNotifier';
+import {
+  AutoSyncScheduler,
+  AutoSyncStateSnapshot,
+  createIdleSyncState
+} from '@/infrastructure/sync/AutoSyncScheduler';
+import {
+  defaultSyncLifecycleAdapter,
+  SyncLifecycleAdapter
+} from '@/infrastructure/sync/SyncLifecycleAdapter';
 import { BrowserBackupFileExporter } from '@/infrastructure/backup/BrowserBackupFileExporter';
 import { ReactQueryBackupCacheInvalidator } from '@/infrastructure/backup/ReactQueryBackupCacheInvalidator';
 import { DexieUnitOfWork } from './DexieUnitOfWork';
-import { ManualSyncCoordinator } from '@/infrastructure/sync/ManualSyncCoordinator';
+import {
+  ManualSyncCoordinator,
+  UnifiedSyncResult
+} from '@/infrastructure/sync/ManualSyncCoordinator';
 import { AccountSyncDispatcher } from '@/infrastructure/sync/dispatchers/AccountSyncDispatcher';
 import { TransactionSyncDispatcher } from '@/infrastructure/sync/dispatchers/TransactionSyncDispatcher';
 import { CategorySyncDispatcher } from '@/infrastructure/sync/dispatchers/CategorySyncDispatcher';
@@ -38,6 +51,10 @@ import { RecurringReconciliationService } from '@/infrastructure/sync/RecurringR
 import { NotificationSyncDispatcher } from '@/infrastructure/sync/dispatchers/NotificationSyncDispatcher';
 import { NotificationPreferenceSyncDispatcher } from '@/infrastructure/sync/dispatchers/NotificationPreferenceSyncDispatcher';
 import { NotificationReconciliationService } from '@/infrastructure/sync/NotificationReconciliationService';
+import { AccountReconciliationService } from '@/infrastructure/sync/AccountReconciliationService';
+import { CategoryReconciliationService } from '@/infrastructure/sync/CategoryReconciliationService';
+import { TransactionReconciliationService } from '@/infrastructure/sync/TransactionReconciliationService';
+import { BorrowingsReconciliationService } from '@/infrastructure/sync/BorrowingsReconciliationService';
 import { CategoryMappingService } from '@/infrastructure/sync/CategoryMappingService';
 import {
   ISupabaseAccountRepository,
@@ -158,7 +175,12 @@ export interface UserRepositories {
   safetyBackupReceiptRegistry: SafetyBackupReceiptRegistry;
   outboxManager: OutboxManager;
   unitOfWork: DexieUnitOfWork;
+  accountReconciler: AccountReconciliationService;
+  categoryReconciler: CategoryReconciliationService;
+  transactionReconciler: TransactionReconciliationService;
+  borrowingsReconciler: BorrowingsReconciliationService;
   syncCoordinator: ManualSyncCoordinator;
+  autoSyncScheduler: AutoSyncScheduler;
 
   // Pre-wired account use cases
   getAccountsUseCase: GetAccountsWithBalanceUseCase;
@@ -223,6 +245,12 @@ export class DatabaseManager {
   private openPromise: Promise<LaxmiLensDB> | null = null;
   private openingUserId: string | null = null;
   private activeRepositories: UserRepositories | null = null;
+  private readonly syncStateListeners = new Set<(state: AutoSyncStateSnapshot) => void>();
+  private readonly syncCompletionHandlers = new Set<
+    (userId: string, result: UnifiedSyncResult) => void
+  >();
+  private autoSyncUnsubscribe: (() => void) | null = null;
+  private publishedSyncState: AutoSyncStateSnapshot = createIdleSyncState(null, true);
 
   constructor(
     private readonly authPort: AuthPort = defaultAuthAdapter,
@@ -265,8 +293,11 @@ export class DatabaseManager {
     private readonly supabaseNotificationRepo: ISupabaseNotificationRepository = new SupabaseNotificationRepository(),
     private readonly supabaseNotificationPreferenceRepo: ISupabaseNotificationPreferenceRepository = new SupabaseNotificationPreferenceRepository(),
     private readonly backupFileExporter: BackupFileExporter = new BrowserBackupFileExporter(),
-    private readonly backupCacheInvalidator: BackupCacheInvalidator = new ReactQueryBackupCacheInvalidator()
-  ) {}
+    private readonly backupCacheInvalidator: BackupCacheInvalidator = new ReactQueryBackupCacheInvalidator(),
+    private readonly syncLifecycleAdapter: SyncLifecycleAdapter = defaultSyncLifecycleAdapter
+  ) {
+    this.publishedSyncState = createIdleSyncState(null, this.syncLifecycleAdapter.isOnline());
+  }
 
   public getSessionGeneration(): number {
     return this.sessionGeneration;
@@ -332,6 +363,7 @@ export class DatabaseManager {
     this.openingUserId = validatedUserId;
     this.sessionGeneration++;
     const currentGeneration = this.sessionGeneration;
+    this.activeRepositories?.autoSyncScheduler?.dispose();
 
     const promiseHolder: { current: Promise<LaxmiLensDB> | null } = { current: null };
     const thisPromise = (async () => {
@@ -415,11 +447,16 @@ export class DatabaseManager {
   }
 
   private async internalCloseDatabase(): Promise<void> {
+    this.autoSyncUnsubscribe?.();
+    this.autoSyncUnsubscribe = null;
+    this.activeRepositories?.autoSyncScheduler?.dispose();
+    this.activeRepositories?.syncCoordinator?.dispose();
     this.activeRepositories?.safetyBackupReceiptRegistry?.clear();
     const dbToClose = this.activeDatabase;
     this.activeDatabase = null;
     this.activeUserId = null;
     this.activeRepositories = null;
+    this.publishSyncState(createIdleSyncState(null, this.syncLifecycleAdapter.isOnline()));
 
     if (dbToClose && dbToClose.isOpen()) {
       try {
@@ -468,6 +505,70 @@ export class DatabaseManager {
   }
 
   /**
+   * Resolves the user-scoped AutoSyncScheduler for the current authenticated user.
+   */
+  public async getActiveAutoSyncScheduler(): Promise<AutoSyncScheduler> {
+    const repos = await this.getActiveRepositories();
+    return repos.autoSyncScheduler;
+  }
+
+  /**
+   * Activates automatic synchronization triggers AFTER database initialization and
+   * LegacyDatabaseMigrator have both completed successfully for the matching session.
+   */
+  public notifySessionReady(userId: string): void {
+    let validatedUserId: UserId;
+    try {
+      validatedUserId = validateUserId(userId);
+    } catch {
+      return;
+    }
+
+    if (
+      !this.activeRepositories ||
+      this.activeUserId !== validatedUserId ||
+      this.activeRepositories.generation !== this.sessionGeneration ||
+      !this.activeDatabase?.isOpen()
+    ) {
+      return;
+    }
+
+    this.activeRepositories.autoSyncScheduler.start();
+  }
+
+  public getSyncState(): AutoSyncStateSnapshot {
+    return this.activeRepositories?.autoSyncScheduler.getState() ?? this.publishedSyncState;
+  }
+
+  public subscribeSyncState(listener: (state: AutoSyncStateSnapshot) => void): () => void {
+    this.syncStateListeners.add(listener);
+    listener(this.getSyncState());
+    return () => {
+      this.syncStateListeners.delete(listener);
+    };
+  }
+
+  public subscribeSyncCompletion(
+    handler: (userId: string, result: UnifiedSyncResult) => void
+  ): () => void {
+    this.syncCompletionHandlers.add(handler);
+    return () => {
+      this.syncCompletionHandlers.delete(handler);
+    };
+  }
+
+  private publishSyncState(snapshot: AutoSyncStateSnapshot): void {
+    this.publishedSyncState = snapshot;
+    for (const listener of Array.from(this.syncStateListeners)) {
+      try {
+        listener(snapshot);
+      } catch (err) {
+        console.error('DatabaseManager syncState listener failed:', err);
+      }
+    }
+  }
+
+  /**
    * Factory constructing user-scoped repositories, UnitOfWork, and use cases.
    */
   private buildRepositories(
@@ -479,8 +580,9 @@ export class DatabaseManager {
     const transactionRepo = new DexieTransactionRepository(database);
     const categoryRepo = new DexieCategoryRepository(database);
     const profileRepo = new DexieProfileRepository(database);
-    const outboxManager = new OutboxManager(database);
-    const unitOfWork = new DexieUnitOfWork(database);
+    const commitNotifier = new LocalWriteCommitNotifier();
+    const outboxManager = new OutboxManager(database, commitNotifier);
+    const unitOfWork = new DexieUnitOfWork(database, undefined, commitNotifier);
 
     const categoryMappingService = new CategoryMappingService(
       database,
@@ -580,6 +682,36 @@ export class DatabaseManager {
       this.authPort
     );
 
+    const categoryReconciler = new CategoryReconciliationService(
+      database,
+      this.supabaseCategoryRepo,
+      this.authPort,
+      categoryMappingService
+    );
+
+    const accountReconciler = new AccountReconciliationService(
+      database,
+      this.supabaseAccountRepo,
+      this.authPort
+    );
+
+    const transactionReconciler = new TransactionReconciliationService(
+      database,
+      this.supabaseTransactionRepo,
+      this.authPort,
+      categoryMappingService
+    );
+
+    const borrowingsReconciler = new BorrowingsReconciliationService(
+      database,
+      this.supabaseLenderRepo,
+      this.supabaseBorrowingRepo,
+      this.supabaseBorrowingRepaymentRepo,
+      this.authPort
+    );
+
+    let autoSyncScheduler!: AutoSyncScheduler;
+
     const syncCoordinator = new ManualSyncCoordinator(
       accountDispatcher,
       transactionDispatcher,
@@ -596,8 +728,55 @@ export class DatabaseManager {
       recurringReconciler,
       notificationDispatcher,
       notificationPreferenceDispatcher,
-      notificationReconciler
+      notificationReconciler,
+      {
+        userId,
+        sessionGeneration: generation,
+        sessionCheck: () =>
+          this.sessionGeneration === generation && this.activeUserId === userId,
+        accountReconciler,
+        categoryReconciler,
+        transactionReconciler,
+        borrowingsReconciler,
+        onCrossTabEvent: (message) => {
+          if (
+            message.userId === userId &&
+            this.sessionGeneration === generation &&
+            this.activeUserId === userId
+          ) {
+            void autoSyncScheduler?.handleCrossTabMessage(message);
+          }
+        }
+      }
     );
+
+    autoSyncScheduler = new AutoSyncScheduler({
+      userId,
+      sessionGeneration: generation,
+      coordinator: syncCoordinator,
+      outboxManager,
+      sessionCheck: () =>
+        this.sessionGeneration === generation && this.activeUserId === userId,
+      commitNotifier,
+      lifecycleAdapter: this.syncLifecycleAdapter,
+      cacheInvalidator: this.backupCacheInvalidator,
+      onSyncSuccessWithChanges: (syncedUserId, syncResult) => {
+        for (const handler of Array.from(this.syncCompletionHandlers)) {
+          try {
+            handler(syncedUserId, syncResult);
+          } catch (err) {
+            console.error('Sync completion handler failed:', err);
+          }
+        }
+      }
+    });
+
+    this.autoSyncUnsubscribe?.();
+    this.autoSyncUnsubscribe = autoSyncScheduler.subscribe((snapshot) => {
+      if (this.sessionGeneration === generation && this.activeUserId === userId) {
+        this.publishSyncState(snapshot);
+      }
+    });
 
     const getAccountsUseCase = new GetAccountsWithBalanceUseCase(accountRepo, transactionRepo);
     const createAccountUseCase = new CreateAccountUseCase(accountRepo, outboxManager, unitOfWork);
@@ -862,7 +1041,12 @@ export class DatabaseManager {
       safetyBackupReceiptRegistry,
       outboxManager,
       unitOfWork,
+      accountReconciler,
+      categoryReconciler,
+      transactionReconciler,
+      borrowingsReconciler,
       syncCoordinator,
+      autoSyncScheduler,
       getAccountsUseCase,
       createAccountUseCase,
       updateAccountUseCase,
@@ -907,6 +1091,20 @@ export class DatabaseManager {
     };
 
     return this.activeRepositories;
+  }
+
+  /**
+   * Notifies the active user's sync coordinator and scheduler that auth session tokens refreshed.
+   */
+  public notifyAuthRefreshed(userId?: string): void {
+    if (!this.activeRepositories) {
+      return;
+    }
+    if (userId && this.activeUserId !== userId) {
+      return;
+    }
+    this.activeRepositories.syncCoordinator.notifyAuthRefreshed(userId);
+    this.activeRepositories.autoSyncScheduler?.notifyAuthRefreshed();
   }
 }
 

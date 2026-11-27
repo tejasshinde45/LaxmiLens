@@ -10,6 +10,7 @@ import {
 } from '@/domain/value-objects/Identifiers';
 import { InvalidUserIdError } from '@/domain/errors/DomainErrors';
 import { InvalidRepaymentAmountError } from '@/domain/errors/BorrowingErrors';
+import { LocalBorrowingRepaymentRecord } from '@/infrastructure/database/local/schema';
 
 export interface CloudBorrowingRepaymentRow {
   id: string; // UUID
@@ -26,6 +27,65 @@ export interface CloudBorrowingRepaymentRow {
 }
 
 export class BorrowingRepaymentMapper {
+  /**
+   * Validates structural, monetary, date, and relational UUID fields of a CloudBorrowingRepaymentRow.
+   */
+  public static validateCloudRow(row: CloudBorrowingRepaymentRow): void {
+    if (!row || typeof row !== 'object') {
+      throw new Error('Malformed cloud repayment row: expected object.');
+    }
+    if (typeof row.id !== 'string' || !isValidUuid(row.id)) {
+      throw new Error(`Invalid cloud repayment ID '${row.id}': must be a valid UUID.`);
+    }
+    validateUserId(row.user_id);
+
+    if (typeof row.borrowing_id !== 'string' || !isValidUuid(row.borrowing_id)) {
+      throw new Error(`Invalid cloud repayment borrowing_id '${row.borrowing_id}' on '${row.id}'.`);
+    }
+    if (typeof row.lender_id !== 'string' || !isValidUuid(row.lender_id)) {
+      throw new Error(`Invalid cloud repayment lender_id '${row.lender_id}' on '${row.id}'.`);
+    }
+    if (
+      typeof row.amount_paise !== 'number' ||
+      !Number.isSafeInteger(row.amount_paise) ||
+      row.amount_paise <= 0
+    ) {
+      throw new InvalidRepaymentAmountError();
+    }
+    if (isNaN(new Date(row.repayment_date).getTime())) {
+      throw new Error(`Invalid cloud repayment_date '${row.repayment_date}' on '${row.id}'.`);
+    }
+    if (typeof row.payment_account_id !== 'string' || !isValidUuid(row.payment_account_id)) {
+      throw new Error(
+        `Invalid cloud payment_account_id '${row.payment_account_id}' on '${row.id}'.`
+      );
+    }
+    if (typeof row.transaction_id !== 'string' || !isValidUuid(row.transaction_id)) {
+      throw new Error(`Invalid cloud transaction_id '${row.transaction_id}' on '${row.id}'.`);
+    }
+  }
+
+  /**
+   * Converts a CloudBorrowingRepaymentRow to a LocalBorrowingRepaymentRecord for Dexie persistence.
+   */
+  public static toLocalRecord(row: CloudBorrowingRepaymentRow): LocalBorrowingRepaymentRecord {
+    this.validateCloudRow(row);
+    const nowIso = new Date().toISOString();
+    return {
+      id: row.id.trim(),
+      userId: validateUserId(row.user_id),
+      borrowingId: row.borrowing_id.trim(),
+      lenderId: row.lender_id.trim(),
+      amountPaise: row.amount_paise,
+      repaymentDate: new Date(row.repayment_date).toISOString(),
+      paymentAccountId: row.payment_account_id.trim(),
+      transactionId: row.transaction_id.trim(),
+      notes: row.notes ?? undefined,
+      createdAt: row.created_at ? new Date(row.created_at).toISOString() : nowIso,
+      updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : nowIso
+    };
+  }
+
   /**
    * Converts a raw PostgreSQL cloud borrowing repayment row to the domain BorrowingRepayment entity.
    */

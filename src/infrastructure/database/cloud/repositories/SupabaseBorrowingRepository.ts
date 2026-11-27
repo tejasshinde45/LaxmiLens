@@ -5,6 +5,12 @@ import { ISupabaseLenderRepository } from './SupabaseLenderRepository';
 import { ISupabaseAccountRepository } from './SupabaseAccountRepository';
 import { ISupabaseTransactionRepository } from './SupabaseTransactionRepository';
 import {
+  DEFAULT_CLOUD_PAGE_SIZE,
+  fetchAllOrderedPages,
+  hasRangeMethod,
+  RangeCapableQuery
+} from './cloudPagination';
+import {
   SyncAuthError,
   SyncConflictError,
   SyncDatabaseError,
@@ -24,6 +30,10 @@ export interface ISupabaseBorrowingRepository {
   findById(id: string, userId: string): Promise<CloudBorrowingRow | null>;
   findByLenderId(lenderId: string, userId: string): Promise<CloudBorrowingRow[]>;
   findAll(userId: string): Promise<CloudBorrowingRow[]>;
+  findPage?(
+    userId: string,
+    options?: { offset?: number; limit?: number }
+  ): Promise<{ rows: CloudBorrowingRow[]; hasMore: boolean; nextOffset: number }>;
 }
 
 export class SupabaseBorrowingRepository implements ISupabaseBorrowingRepository {
@@ -245,24 +255,98 @@ export class SupabaseBorrowingRepository implements ISupabaseBorrowingRepository
   }
 
   /**
-   * Retrieves all borrowings belonging to the specified user.
+   * Retrieves a deterministic page of borrowings belonging to the specified user.
+   */
+  public async findPage(
+    userId: string,
+    options: { offset?: number; limit?: number } = {}
+  ): Promise<{ rows: CloudBorrowingRow[]; hasMore: boolean; nextOffset: number }> {
+    if (!userId || userId.trim().length === 0) {
+      throw new SyncAuthError('Cannot query borrowings: userId is required for tenant isolation.');
+    }
+
+    const safeOffset = Math.max(0, Math.floor(options.offset ?? 0));
+    const safeLimit = Math.max(
+      1,
+      Math.min(1000, Math.floor(options.limit ?? DEFAULT_CLOUD_PAGE_SIZE))
+    );
+
+    const orderedQuery = this.client
+      .from('borrowings')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true });
+
+    const { data, error } = hasRangeMethod<CloudBorrowingRow>(orderedQuery)
+      ? await orderedQuery.range(safeOffset, safeOffset + safeLimit)
+      : await orderedQuery;
+
+    if (error) {
+      throw new SyncDatabaseError(error.message, error.code, error);
+    }
+
+    const batch = (data || []) as CloudBorrowingRow[];
+    const hasMore = hasRangeMethod<CloudBorrowingRow>(orderedQuery)
+      ? batch.length > safeLimit
+      : false;
+    const rows = hasMore ? batch.slice(0, safeLimit) : batch;
+
+    for (const row of rows) {
+      if (row.user_id !== userId) {
+        throw new SyncAuthError(`Retrieved borrowing '${row.id}' belongs to another user.`);
+      }
+    }
+
+    return {
+      rows,
+      hasMore,
+      nextOffset: safeOffset + rows.length
+    };
+  }
+
+  /**
+   * Retrieves all borrowings belonging to the specified user without silent truncation.
    */
   public async findAll(userId: string): Promise<CloudBorrowingRow[]> {
     if (!userId || userId.trim().length === 0) {
       throw new SyncAuthError('Cannot query borrowings: userId is required for tenant isolation.');
     }
 
-    const { data, error } = await this.client
+    const baseQuery = this.client
       .from('borrowings')
       .select('*')
       .eq('user_id', userId)
       .order('borrowing_date', { ascending: false });
 
-    if (error) {
-      throw new SyncDatabaseError(error.message, error.code, error);
+    let rows: CloudBorrowingRow[];
+    if (!hasRangeMethod<CloudBorrowingRow>(baseQuery)) {
+      const { data, error } = await baseQuery;
+      if (error) {
+        throw new SyncDatabaseError(error.message, error.code, error);
+      }
+      rows = (data || []) as CloudBorrowingRow[];
+    } else {
+      rows = await fetchAllOrderedPages<CloudBorrowingRow>(
+        () =>
+          this.client
+            .from('borrowings')
+            .select('*')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: true })
+            .order('id', { ascending: true }) as unknown as RangeCapableQuery<CloudBorrowingRow>,
+        DEFAULT_CLOUD_PAGE_SIZE,
+        (err) => new SyncDatabaseError(err.message, err.code, err)
+      );
     }
 
-    return (data || []) as CloudBorrowingRow[];
+    for (const row of rows) {
+      if (row.user_id !== userId) {
+        throw new SyncAuthError(`Retrieved borrowing '${row.id}' belongs to another user.`);
+      }
+    }
+
+    return rows;
   }
 
   private async reconcileDuplicateInsert(attempted: CloudBorrowingRow): Promise<CloudBorrowingRow> {

@@ -40,14 +40,26 @@ export interface BackupStoragePort {
 
 export type BackupExclusiveOperation = 'backup' | 'restore';
 
+export interface ExclusiveOperationOptions {
+  readonly broadcastRestoreCompleted?: boolean;
+}
+
 export interface BackupSyncActivityGuard {
   isSyncRunning(): boolean;
   isOperationInProgress?(): boolean;
-  runExclusive?<T>(operation: BackupExclusiveOperation, work: () => Promise<T>): Promise<T>;
+  runExclusive?<T>(
+    operation: BackupExclusiveOperation,
+    work: () => Promise<T>,
+    options?: ExclusiveOperationOptions
+  ): Promise<T>;
+}
+
+export interface InvalidateCacheOptions {
+  readonly includeNotifications?: boolean;
 }
 
 export interface BackupCacheInvalidator {
-  invalidateUserCaches(userId: string): Promise<void>;
+  invalidateUserCaches(userId: string, options?: InvalidateCacheOptions): Promise<void>;
 }
 
 export interface BackupFileExportOutcome {

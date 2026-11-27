@@ -244,9 +244,19 @@ describe('Phase 12 Stage 3A: Accessibility & Interaction Reliability', () => {
     expect(expandBtn).toHaveAttribute('aria-controls', 'primary-sidebar-nav');
 
     const nav = screen.getByRole('navigation', { name: 'Main navigation' });
-    expect(within(nav).getByRole('link', { name: 'Overview' })).toBeInTheDocument();
-    expect(within(nav).getByRole('link', { name: 'Budgets' })).toBeInTheDocument();
-    expect(within(nav).getByRole('link', { name: 'Notifications (2)' })).toBeInTheDocument();
+    const overviewLink = within(nav).getByRole('link', { name: 'Overview' });
+    const budgetsLink = within(nav).getByRole('link', { name: 'Budgets' });
+    const notificationsLink = within(nav).getByRole('link', { name: 'Notifications (2)' });
+
+    expect(overviewLink).toHaveAttribute('aria-current', 'page');
+    expect(overviewLink.className).not.toContain('=>');
+    expect(overviewLink).toHaveClass('h-10', 'w-10', 'justify-center', 'border-[#D6AD60]/30');
+
+    expect(budgetsLink).not.toHaveAttribute('aria-current');
+    expect(budgetsLink.className).not.toContain('=>');
+    expect(budgetsLink).toHaveClass('h-10', 'w-10', 'justify-center', 'border-transparent');
+    expect(budgetsLink.className).not.toContain('border-[#D6AD60]');
+    expect(notificationsLink).toHaveClass('h-10', 'w-10', 'border-transparent');
 
     // Expand More drawer on Mobile Bottom Navigation -> genuine Radix role="dialog"
     const moreBtn = screen.getByRole('button', { name: 'More Features' });

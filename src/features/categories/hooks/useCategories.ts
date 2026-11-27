@@ -40,7 +40,17 @@ export function useCategories(explicitClient?: QueryClient) {
           const repos = await defaultDatabaseManager.getActiveRepositories();
           let cats = await repos.categoryRepo.findByUserId(validatedUserId);
           if (cats.length === 0) {
-            cats = await repos.categoryRepo.seedDefaults(validatedUserId);
+            if (typeof navigator === 'undefined' || navigator.onLine !== false) {
+              try {
+                await repos.categoryReconciler?.pullAndReconcile(validatedUserId);
+                cats = await repos.categoryRepo.findByUserId(validatedUserId);
+              } catch {
+                // Offline or unauthenticated fallback: continue to local default seeding
+              }
+            }
+            if (cats.length === 0) {
+              cats = await repos.categoryRepo.seedDefaults(validatedUserId);
+            }
           }
           return cats;
         } catch {

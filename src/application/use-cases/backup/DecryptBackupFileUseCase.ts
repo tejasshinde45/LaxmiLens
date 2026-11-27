@@ -14,8 +14,8 @@ import {
   InvalidBackupFormatError
 } from '@/domain/errors/BackupErrors';
 import {
-  assertNoManualSyncRunning,
-  resolveVerifiedBackupActor
+  resolveVerifiedBackupActor,
+  runWithExclusiveBackupLock
 } from './backupUseCaseHelpers';
 
 async function readFileContentSafely(file: Blob): Promise<string> {
@@ -67,7 +67,19 @@ export class DecryptBackupFileUseCase {
   ) {}
 
   public async execute(input: DecryptBackupFileInputDTO): Promise<DecryptedBackupResultDTO> {
-    assertNoManualSyncRunning(this.syncGuard);
+    return runWithExclusiveBackupLock(
+      this.syncGuard,
+      'restore',
+      async () => {
+        return await this.executeUnlocked(input);
+      },
+      { broadcastRestoreCompleted: false }
+    );
+  }
+
+  public async executeUnlocked(
+    input: DecryptBackupFileInputDTO
+  ): Promise<DecryptedBackupResultDTO> {
     await resolveVerifiedBackupActor(this.authPort, this.scopedUserId);
 
     let payloadToParse: unknown = input?.rawContent;

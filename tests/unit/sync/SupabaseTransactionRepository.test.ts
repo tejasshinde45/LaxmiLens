@@ -839,4 +839,87 @@ describe('SupabaseTransactionRepository', () => {
       await expect(repo.insert(sampleExpense)).rejects.toThrow(SyncDatabaseError);
     });
   });
+
+  describe('19. Paginated cloud transaction retrieval (findPage & findAll)', () => {
+    const buildTxRow = (index: number, overrides: Partial<CloudTransactionRow> = {}): CloudTransactionRow => ({
+      ...sampleExpense,
+      id: `11111111-1111-4111-8111-${String(index).padStart(12, '0')}`,
+      title: `Tx ${index}`,
+      idempotency_key: `idemp-${index}`,
+      created_at: `2026-11-21T12:${String(Math.floor(index / 60)).padStart(2, '0')}:${String(index % 60).padStart(2, '0')}.000Z`,
+      ...overrides
+    });
+
+    it('paginates through multiple pages via findPage including tombstones without silent truncation', async () => {
+      const deletedRow = buildTxRow(2, {
+        deleted_at: '2026-11-22T09:00:00.000Z',
+        version: 2
+      });
+      const allRows = [buildTxRow(1), deletedRow, buildTxRow(3)];
+      const rangeCalls: Array<[number, number]> = [];
+
+      mockClient.from.mockImplementation(() => {
+        let filterDeletedOnly = false;
+        const builder: Record<string, unknown> = {
+          select: vi.fn().mockImplementation(() => builder),
+          eq: vi.fn().mockImplementation(() => builder),
+          is: vi.fn().mockImplementation(() => {
+            filterDeletedOnly = true;
+            return builder;
+          }),
+          order: vi.fn().mockImplementation(() => builder),
+          range: vi.fn().mockImplementation(async (from: number, to: number) => {
+            rangeCalls.push([from, to]);
+            const source = filterDeletedOnly
+              ? allRows.filter((r) => r.deleted_at === null)
+              : allRows;
+            return {
+              data: source.slice(from, to + 1),
+              error: null
+            };
+          })
+        };
+        return builder;
+      });
+
+      const page1 = await repo.findPage(validUserId, { offset: 0, limit: 2 });
+      expect(page1.rows.map((r) => r.title)).toEqual(['Tx 1', 'Tx 2']);
+      expect(page1.rows[1].deleted_at).toBe('2026-11-22T09:00:00.000Z');
+      expect(page1.hasMore).toBe(true);
+      expect(page1.nextOffset).toBe(2);
+
+      const page2 = await repo.findPage(validUserId, { offset: page1.nextOffset, limit: 2 });
+      expect(page2.rows.map((r) => r.title)).toEqual(['Tx 3']);
+      expect(page2.hasMore).toBe(false);
+      expect(page2.nextOffset).toBe(3);
+
+      expect(rangeCalls).toEqual([
+        [0, 2],
+        [2, 4]
+      ]);
+
+      const allFetched = await repo.findAll(validUserId, { pageSize: 2 });
+      expect(allFetched).toHaveLength(3);
+      expect(allFetched[1].deleted_at).toBe('2026-11-22T09:00:00.000Z');
+    });
+
+    it('rejects cross-user rows returned from cloud queries', async () => {
+      const foreignRow = buildTxRow(99, { user_id: '99999999-9999-4999-8999-999999999999' });
+
+      mockClient.from.mockImplementation(() => {
+        const builder: Record<string, unknown> = {
+          select: vi.fn().mockImplementation(() => builder),
+          eq: vi.fn().mockImplementation(() => builder),
+          order: vi.fn().mockImplementation(() => builder),
+          range: vi.fn().mockResolvedValue({ data: [foreignRow], error: null })
+        };
+        return builder;
+      });
+
+      await expect(repo.findPage(validUserId, { offset: 0, limit: 50 })).rejects.toThrow(
+        SyncAuthError
+      );
+      await expect(repo.findAll(validUserId, { pageSize: 50 })).rejects.toThrow(SyncAuthError);
+    });
+  });
 });

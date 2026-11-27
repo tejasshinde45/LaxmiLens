@@ -2,6 +2,13 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { supabase } from '../supabaseClient';
 import { CloudAccountRow } from '../mappers/AccountMapper';
 import {
+  DEFAULT_CLOUD_PAGE_SIZE,
+  fetchAllOrderedPages,
+  hasRangeMethod,
+  RangeCapableQuery
+} from './cloudPagination';
+import {
+  SyncAuthError,
   SyncConflictError,
   SyncDatabaseError
 } from '@/infrastructure/sync/errors/SyncErrors';
@@ -16,6 +23,10 @@ export interface ISupabaseAccountRepository {
   ): Promise<CloudAccountRow>;
   findById(id: string): Promise<CloudAccountRow | null>;
   findAll(userId: string): Promise<CloudAccountRow[]>;
+  findPage?(
+    userId: string,
+    options?: { offset?: number; limit?: number }
+  ): Promise<{ rows: CloudAccountRow[]; hasMore: boolean; nextOffset: number }>;
 }
 
 export class SupabaseAccountRepository implements ISupabaseAccountRepository {
@@ -60,7 +71,19 @@ export class SupabaseAccountRepository implements ISupabaseAccountRepository {
       }
 
       const verified = data as CloudAccountRow;
-      this.verifyPersistedRow(verified, account.id, account.user_id, account.version);
+      if (verified.id !== account.id) {
+        throw new Error(`Persisted row ID '${verified.id}' does not match expected ID '${account.id}'.`);
+      }
+      if (verified.user_id !== account.user_id) {
+        throw new Error(
+          `Persisted row user_id '${verified.user_id}' does not match expected owner '${account.user_id}'.`
+        );
+      }
+      if (verified.version < account.version) {
+        throw new Error(
+          `Persisted row version '${verified.version}' is lower than expected version '${account.version}'.`
+        );
+      }
       return verified;
     }
 
@@ -251,20 +274,98 @@ export class SupabaseAccountRepository implements ISupabaseAccountRepository {
   }
 
   /**
-   * Retrieves all accounts belonging to the specified user.
+   * Retrieves a deterministic page of accounts belonging to the specified user.
    */
-  public async findAll(userId: string): Promise<CloudAccountRow[]> {
-    const { data, error } = await this.client
+  public async findPage(
+    userId: string,
+    options: { offset?: number; limit?: number } = {}
+  ): Promise<{ rows: CloudAccountRow[]; hasMore: boolean; nextOffset: number }> {
+    if (!userId || userId.trim().length === 0) {
+      throw new SyncAuthError('Cannot query accounts: userId is required for tenant isolation.');
+    }
+
+    const safeOffset = Math.max(0, Math.floor(options.offset ?? 0));
+    const safeLimit = Math.max(
+      1,
+      Math.min(1000, Math.floor(options.limit ?? DEFAULT_CLOUD_PAGE_SIZE))
+    );
+
+    const orderedQuery = this.client
       .from('accounts')
       .select('*')
       .eq('user_id', userId)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true });
+
+    const { data, error } = hasRangeMethod<CloudAccountRow>(orderedQuery)
+      ? await orderedQuery.range(safeOffset, safeOffset + safeLimit)
+      : await orderedQuery;
 
     if (error) {
       throw new SyncDatabaseError(error.message, error.code, error);
     }
 
-    return (data || []) as CloudAccountRow[];
+    const batch = (data || []) as CloudAccountRow[];
+    const hasMore = hasRangeMethod<CloudAccountRow>(orderedQuery)
+      ? batch.length > safeLimit
+      : false;
+    const rows = hasMore ? batch.slice(0, safeLimit) : batch;
+
+    for (const row of rows) {
+      if (row.user_id !== userId) {
+        throw new SyncAuthError(`Retrieved account '${row.id}' belongs to another user.`);
+      }
+    }
+
+    return {
+      rows,
+      hasMore,
+      nextOffset: safeOffset + rows.length
+    };
+  }
+
+  /**
+   * Retrieves all accounts belonging to the specified user without silent truncation.
+   */
+  public async findAll(userId: string): Promise<CloudAccountRow[]> {
+    if (!userId || userId.trim().length === 0) {
+      throw new SyncAuthError('Cannot query accounts: userId is required for tenant isolation.');
+    }
+
+    const baseQuery = this.client
+      .from('accounts')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    let rows: CloudAccountRow[];
+    if (!hasRangeMethod<CloudAccountRow>(baseQuery)) {
+      const { data, error } = await baseQuery;
+      if (error) {
+        throw new SyncDatabaseError(error.message, error.code, error);
+      }
+      rows = (data || []) as CloudAccountRow[];
+    } else {
+      rows = await fetchAllOrderedPages<CloudAccountRow>(
+        () =>
+          this.client
+            .from('accounts')
+            .select('*')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: true })
+            .order('id', { ascending: true }) as unknown as RangeCapableQuery<CloudAccountRow>,
+        DEFAULT_CLOUD_PAGE_SIZE,
+        (err) => new SyncDatabaseError(err.message, err.code, err)
+      );
+    }
+
+    for (const row of rows) {
+      if (row.user_id !== userId) {
+        throw new SyncAuthError(`Retrieved account '${row.id}' belongs to another user.`);
+      }
+    }
+
+    return rows;
   }
 
   private verifyPersistedRow(

@@ -5,6 +5,7 @@ import {
   isValidUuid
 } from '@/domain/value-objects/Identifiers';
 import { InvalidMoneyError, InvalidUserIdError } from '@/domain/errors/DomainErrors';
+import { LocalAccountRecord } from '@/infrastructure/database/local/schema';
 
 export interface CloudAccountRow {
   id: string; // UUID
@@ -34,6 +35,67 @@ const VALID_ACCOUNT_TYPES: ReadonlySet<string> = new Set([
 ]);
 
 export class AccountMapper {
+  /**
+   * Validates structural, ownership, and monetary fields of a CloudAccountRow.
+   */
+  public static validateCloudRow(row: CloudAccountRow): void {
+    if (!row || typeof row !== 'object') {
+      throw new Error('Malformed cloud account row: expected object.');
+    }
+    if (typeof row.id !== 'string' || !isValidUuid(row.id)) {
+      throw new Error(`Invalid cloud account ID '${row.id}': must be a valid UUID.`);
+    }
+    validateUserId(row.user_id);
+
+    if (typeof row.name !== 'string' || row.name.trim().length === 0) {
+      throw new Error(`Invalid cloud account name on '${row.id}': must not be empty.`);
+    }
+    if (!VALID_ACCOUNT_TYPES.has(row.account_type)) {
+      throw new Error(`Invalid cloud account_type '${row.account_type}' on '${row.id}'.`);
+    }
+    if (
+      typeof row.opening_balance_paise !== 'number' ||
+      !Number.isSafeInteger(row.opening_balance_paise)
+    ) {
+      throw new InvalidMoneyError('opening_balance_paise from cloud is not a safe integer.');
+    }
+    if (typeof row.version !== 'number' || !Number.isSafeInteger(row.version) || row.version < 1) {
+      throw new Error(`Invalid cloud account version '${row.version}' on '${row.id}'.`);
+    }
+  }
+
+  /**
+   * Converts a CloudAccountRow to a LocalAccountRecord for Dexie persistence.
+   */
+  public static toLocalRecord(row: CloudAccountRow): LocalAccountRecord {
+    this.validateCloudRow(row);
+    const nowIso = new Date().toISOString();
+    const openingBalancePaise = row.opening_balance_paise;
+    const isArchived = Boolean(row.is_archived);
+    return {
+      id: row.id.trim(),
+      userId: validateUserId(row.user_id),
+      name: row.name.trim(),
+      accountType: row.account_type,
+      openingBalancePaise,
+      currency: row.currency?.trim() || 'INR',
+      institutionName: row.institution_name ?? undefined,
+      color: row.color ?? undefined,
+      icon: row.icon ?? undefined,
+      notes: row.notes ?? undefined,
+      systemTag: row.system_tag ?? null,
+      isArchived,
+      version: row.version,
+      createdAt: row.created_at ? new Date(row.created_at).toISOString() : nowIso,
+      updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : nowIso,
+
+      // Compatibility fields
+      type: row.account_type,
+      openingBalanceInPaise: openingBalancePaise,
+      status: isArchived ? 'archived' : 'active'
+    };
+  }
+
   /**
    * Converts a raw PostgreSQL cloud account row to the domain Account entity.
    */

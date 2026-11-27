@@ -189,7 +189,21 @@ export class DexieCategoryRepository implements CategoryRepository {
       return existing.map((r) => this.toDomain(r));
     }
 
-    const seeded: Category[] = DEFAULT_CATEGORY_SEEDS.map((seed) => {
+    // Defensive check in case default categories already arrived via unassigned/nil system scope
+    const visibleCategories = await this.findByUserId(validatedUserId);
+    if (visibleCategories.some((cat) => cat.isDefault)) {
+      return visibleCategories;
+    }
+
+    const existingDefaultKeys = new Set(
+      visibleCategories
+        .filter((cat) => cat.isDefault)
+        .map((cat) => `${cat.type}:${cat.name.trim().toLowerCase()}`)
+    );
+
+    const seeded: Category[] = DEFAULT_CATEGORY_SEEDS.filter(
+      (seed) => !existingDefaultKeys.has(`${seed.type}:${seed.name.trim().toLowerCase()}`)
+    ).map((seed) => {
       const id = createCategoryId(crypto.randomUUID());
       return new Category({
         id,
@@ -206,8 +220,10 @@ export class DexieCategoryRepository implements CategoryRepository {
       });
     });
 
-    await this.saveBatch(seeded);
-    return seeded;
+    if (seeded.length > 0) {
+      await this.saveBatch(seeded);
+    }
+    return [...visibleCategories, ...seeded];
   }
 
   private toDomain(record: LocalCategoryRecord): Category {

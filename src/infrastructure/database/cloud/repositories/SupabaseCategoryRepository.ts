@@ -2,6 +2,12 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { supabase } from '../supabaseClient';
 import { CloudCategoryRow } from '../mappers/CategoryMapper';
 import {
+  DEFAULT_CLOUD_PAGE_SIZE,
+  fetchAllOrderedPages,
+  hasRangeMethod,
+  RangeCapableQuery
+} from './cloudPagination';
+import {
   SyncAuthError,
   SyncConflictError,
   SyncDatabaseError
@@ -18,6 +24,10 @@ export interface ISupabaseCategoryRepository {
   ): Promise<CloudCategoryRow>;
   findById(id: string, userId?: string): Promise<CloudCategoryRow | null>;
   findAll(userId: string): Promise<CloudCategoryRow[]>;
+  findPage?(
+    userId: string,
+    options?: { offset?: number; limit?: number }
+  ): Promise<{ rows: CloudCategoryRow[]; hasMore: boolean; nextOffset: number }>;
   findByNameAndType(
     userId: string,
     name: string,
@@ -226,21 +236,95 @@ export class SupabaseCategoryRepository implements ISupabaseCategoryRepository {
     return (data as CloudCategoryRow) || null;
   }
 
-  public async findAll(userId: string): Promise<CloudCategoryRow[]> {
+  public async findPage(
+    userId: string,
+    options: { offset?: number; limit?: number } = {}
+  ): Promise<{ rows: CloudCategoryRow[]; hasMore: boolean; nextOffset: number }> {
     if (!userId || userId.trim().length === 0) {
-      return [];
+      return { rows: [], hasMore: false, nextOffset: 0 };
     }
 
-    const { data, error } = await this.client
+    const safeOffset = Math.max(0, Math.floor(options.offset ?? 0));
+    const safeLimit = Math.max(
+      1,
+      Math.min(1000, Math.floor(options.limit ?? DEFAULT_CLOUD_PAGE_SIZE))
+    );
+
+    const eqQuery = this.client
       .from('categories')
       .select('*')
       .eq('user_id', userId);
+
+    const orderedQuery =
+      typeof (eqQuery as { order?: unknown }).order === 'function'
+        ? eqQuery.order('created_at', { ascending: true }).order('id', { ascending: true })
+        : eqQuery;
+
+    const { data, error } = hasRangeMethod<CloudCategoryRow>(orderedQuery)
+      ? await orderedQuery.range(safeOffset, safeOffset + safeLimit)
+      : await orderedQuery;
 
     if (error) {
       throw new SyncDatabaseError(error.message, error.code, error);
     }
 
-    return (data as CloudCategoryRow[]) || [];
+    const batch = (data as CloudCategoryRow[]) || [];
+    const hasMore = hasRangeMethod<CloudCategoryRow>(orderedQuery)
+      ? batch.length > safeLimit
+      : false;
+    const rows = hasMore ? batch.slice(0, safeLimit) : batch;
+
+    for (const row of rows) {
+      if (row.user_id !== userId) {
+        throw new SyncAuthError(`Retrieved category '${row.id}' belongs to another user.`);
+      }
+    }
+
+    return {
+      rows,
+      hasMore,
+      nextOffset: safeOffset + rows.length
+    };
+  }
+
+  public async findAll(userId: string): Promise<CloudCategoryRow[]> {
+    if (!userId || userId.trim().length === 0) {
+      return [];
+    }
+
+    const eqQuery = this.client
+      .from('categories')
+      .select('*')
+      .eq('user_id', userId);
+
+    let rows: CloudCategoryRow[];
+    if (!hasRangeMethod<CloudCategoryRow>(eqQuery)) {
+      const { data, error } = await eqQuery;
+      if (error) {
+        throw new SyncDatabaseError(error.message, error.code, error);
+      }
+      rows = (data as CloudCategoryRow[]) || [];
+    } else {
+      rows = await fetchAllOrderedPages<CloudCategoryRow>(
+        () =>
+          this.client
+            .from('categories')
+            .select('*')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: true })
+            .order('id', { ascending: true }) as unknown as RangeCapableQuery<CloudCategoryRow>,
+        DEFAULT_CLOUD_PAGE_SIZE,
+        (err) => new SyncDatabaseError(err.message, err.code, err)
+      );
+    }
+
+    for (const row of rows) {
+      if (row.user_id !== userId) {
+        throw new SyncAuthError(`Retrieved category '${row.id}' belongs to another user.`);
+      }
+    }
+
+    return rows;
   }
 
   public async findByNameAndType(

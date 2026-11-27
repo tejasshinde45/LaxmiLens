@@ -68,8 +68,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
     >
       <div className="flex flex-col gap-5 overflow-y-auto overflow-x-hidden">
         {/* BRAND Section */}
-        <div className="flex items-center justify-between min-h-[44px]">
-          <div className="flex items-center gap-3 overflow-hidden">
+        <div
+          className={cn(
+            'flex min-h-[44px]',
+            isCollapsed
+              ? 'flex-col items-center gap-2.5'
+              : 'flex-row items-center justify-between'
+          )}
+        >
+          <div className="flex items-center gap-3 min-w-0 shrink-0">
             <div
               aria-hidden="true"
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-gradient-to-br from-[#D6AD60] to-[#B88E46] font-display font-bold text-[#101010] shadow-sm shadow-[#D6AD60]/20"

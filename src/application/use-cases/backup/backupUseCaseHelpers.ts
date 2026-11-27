@@ -1,7 +1,8 @@
 import { AuthPort, AuthUser } from '@/application/ports/AuthPort';
 import {
   BackupExclusiveOperation,
-  BackupSyncActivityGuard
+  BackupSyncActivityGuard,
+  ExclusiveOperationOptions
 } from '@/application/ports/BackupStoragePort';
 import {
   BackupAuthenticationError,
@@ -46,14 +47,15 @@ export function assertNoManualSyncRunning(syncGuard?: BackupSyncActivityGuard): 
 export async function runWithExclusiveBackupLock<T>(
   syncGuard: BackupSyncActivityGuard | undefined,
   operation: BackupExclusiveOperation,
-  work: () => Promise<T>
+  work: () => Promise<T>,
+  options?: ExclusiveOperationOptions
 ): Promise<T> {
   if (!syncGuard) {
     return await work();
   }
 
   if (typeof syncGuard.runExclusive === 'function') {
-    return await syncGuard.runExclusive(operation, work);
+    return await syncGuard.runExclusive(operation, work, options);
   }
 
   if (syncGuard.isSyncRunning() || syncGuard.isOperationInProgress?.()) {

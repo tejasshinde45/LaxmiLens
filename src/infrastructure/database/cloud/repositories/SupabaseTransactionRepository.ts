@@ -1,8 +1,14 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { supabase } from '../supabaseClient';
-import { CloudTransactionRow } from '../mappers/TransactionMapper';
+import { CloudTransactionRow, TransactionMapper } from '../mappers/TransactionMapper';
 import { ISupabaseAccountRepository } from './SupabaseAccountRepository';
 import { ISupabaseCategoryRepository } from './SupabaseCategoryRepository';
+import {
+  DEFAULT_CLOUD_PAGE_SIZE,
+  fetchAllOrderedPages,
+  hasRangeMethod,
+  RangeCapableQuery
+} from './cloudPagination';
 import { isValidUuid } from '@/domain/value-objects/Identifiers';
 import { TransferAccountMismatchError } from '@/domain/errors/DomainErrors';
 import {
@@ -12,6 +18,23 @@ import {
   SyncUnresolvedCategoryError,
   SyncAccountDependencyError
 } from '@/infrastructure/sync/errors/SyncErrors';
+
+export interface TransactionQueryOptions {
+  includeDeleted?: boolean;
+  pageSize?: number;
+}
+
+export interface TransactionPageOptions {
+  offset?: number;
+  limit?: number;
+  includeDeleted?: boolean;
+}
+
+export interface TransactionPageResult {
+  rows: CloudTransactionRow[];
+  hasMore: boolean;
+  nextOffset: number;
+}
 
 export interface ISupabaseTransactionRepository {
   insert(transaction: CloudTransactionRow): Promise<CloudTransactionRow>;
@@ -30,6 +53,8 @@ export interface ISupabaseTransactionRepository {
   ): Promise<CloudTransactionRow>;
   findById(id: string, userId: string): Promise<CloudTransactionRow | null>;
   findByIdempotencyKey(key: string, userId: string): Promise<CloudTransactionRow | null>;
+  findPage?(userId: string, options?: TransactionPageOptions): Promise<TransactionPageResult>;
+  findAll?(userId: string, options?: TransactionQueryOptions): Promise<CloudTransactionRow[]>;
 }
 
 export class SupabaseTransactionRepository implements ISupabaseTransactionRepository {
@@ -438,6 +463,127 @@ export class SupabaseTransactionRepository implements ISupabaseTransactionReposi
     }
 
     return (data as CloudTransactionRow) || null;
+  }
+
+  /**
+   * Retrieves a deterministic page of transactions (including tombstones by default)
+   * scoped strictly to the specified user.
+   */
+  public async findPage(
+    userId: string,
+    options: TransactionPageOptions = {}
+  ): Promise<TransactionPageResult> {
+    if (!userId || userId.trim().length === 0) {
+      throw new SyncAuthError('Cannot query transactions: userId is required for tenant isolation.');
+    }
+
+    const includeDeleted = options.includeDeleted ?? true;
+    const safeOffset = Math.max(0, Math.floor(options.offset ?? 0));
+    const safeLimit = Math.max(
+      1,
+      Math.min(1000, Math.floor(options.limit ?? DEFAULT_CLOUD_PAGE_SIZE))
+    );
+
+    let query = this.client
+      .from('transactions')
+      .select('*')
+      .eq('user_id', userId);
+
+    if (!includeDeleted) {
+      query = query.is('deleted_at', null);
+    }
+
+    const orderedQuery = query
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true });
+
+    const { data, error } = hasRangeMethod<CloudTransactionRow>(orderedQuery)
+      ? await orderedQuery.range(safeOffset, safeOffset + safeLimit)
+      : await orderedQuery;
+
+    if (error) {
+      throw new SyncDatabaseError(error.message, error.code, error);
+    }
+
+    const batch = (data || []) as CloudTransactionRow[];
+    const hasMore = hasRangeMethod<CloudTransactionRow>(orderedQuery)
+      ? batch.length > safeLimit
+      : false;
+    const rows = hasMore ? batch.slice(0, safeLimit) : batch;
+
+    for (const row of rows) {
+      TransactionMapper.validateCloudRow(row);
+      if (row.user_id !== userId) {
+        throw new SyncAuthError(
+          `Retrieved transaction '${row.id}' belongs to another user.`
+        );
+      }
+    }
+
+    return {
+      rows,
+      hasMore,
+      nextOffset: safeOffset + rows.length
+    };
+  }
+
+  /**
+   * Retrieves all transactions belonging to the specified user without silent truncation.
+   */
+  public async findAll(
+    userId: string,
+    options: TransactionQueryOptions = {}
+  ): Promise<CloudTransactionRow[]> {
+    if (!userId || userId.trim().length === 0) {
+      throw new SyncAuthError('Cannot query transactions: userId is required for tenant isolation.');
+    }
+
+    const includeDeleted = options.includeDeleted ?? true;
+    const pageSize = Math.max(
+      1,
+      Math.min(1000, Math.floor(options.pageSize ?? DEFAULT_CLOUD_PAGE_SIZE))
+    );
+
+    const buildQuery = () => {
+      let query = this.client
+        .from('transactions')
+        .select('*')
+        .eq('user_id', userId);
+      if (!includeDeleted) {
+        query = query.is('deleted_at', null);
+      }
+      return query
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true });
+    };
+
+    const probeQuery = buildQuery();
+    let rows: CloudTransactionRow[];
+
+    if (!hasRangeMethod<CloudTransactionRow>(probeQuery)) {
+      const { data, error } = await probeQuery;
+      if (error) {
+        throw new SyncDatabaseError(error.message, error.code, error);
+      }
+      rows = (data || []) as CloudTransactionRow[];
+    } else {
+      rows = await fetchAllOrderedPages<CloudTransactionRow>(
+        () => buildQuery() as unknown as RangeCapableQuery<CloudTransactionRow>,
+        pageSize,
+        (err) => new SyncDatabaseError(err.message, err.code, err)
+      );
+    }
+
+    for (const row of rows) {
+      TransactionMapper.validateCloudRow(row);
+      if (row.user_id !== userId) {
+        throw new SyncAuthError(
+          `Retrieved transaction '${row.id}' belongs to another user.`
+        );
+      }
+    }
+
+    return rows;
   }
 
   private async reconcileDuplicateInsert(attempted: CloudTransactionRow): Promise<CloudTransactionRow> {

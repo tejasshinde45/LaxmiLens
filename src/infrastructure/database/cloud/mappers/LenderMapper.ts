@@ -6,6 +6,7 @@ import {
 } from '@/domain/value-objects/Identifiers';
 import { InvalidUserIdError } from '@/domain/errors/DomainErrors';
 import { InvalidLenderNameError } from '@/domain/errors/BorrowingErrors';
+import { LocalLenderRecord } from '@/infrastructure/database/local/schema';
 
 export interface CloudLenderRow {
   id: string; // UUID
@@ -20,6 +21,42 @@ export interface CloudLenderRow {
 }
 
 export class LenderMapper {
+  /**
+   * Validates structural and ownership fields of a CloudLenderRow.
+   */
+  public static validateCloudRow(row: CloudLenderRow): void {
+    if (!row || typeof row !== 'object') {
+      throw new Error('Malformed cloud lender row: expected object.');
+    }
+    if (typeof row.id !== 'string' || !isValidUuid(row.id)) {
+      throw new Error(`Invalid cloud lender ID '${row.id}': must be a valid UUID.`);
+    }
+    validateUserId(row.user_id);
+
+    if (typeof row.name !== 'string' || row.name.trim().length === 0) {
+      throw new InvalidLenderNameError(`Invalid cloud lender name on '${row.id}'.`);
+    }
+  }
+
+  /**
+   * Converts a CloudLenderRow to a LocalLenderRecord for Dexie persistence.
+   */
+  public static toLocalRecord(row: CloudLenderRow): LocalLenderRecord {
+    this.validateCloudRow(row);
+    const nowIso = new Date().toISOString();
+    return {
+      id: row.id.trim(),
+      userId: validateUserId(row.user_id),
+      name: row.name.trim(),
+      phone: row.phone ?? undefined,
+      email: row.email ?? undefined,
+      notes: row.notes ?? undefined,
+      isArchived: Boolean(row.is_archived),
+      createdAt: row.created_at ? new Date(row.created_at).toISOString() : nowIso,
+      updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : nowIso
+    };
+  }
+
   /**
    * Converts a raw PostgreSQL cloud lender row to the domain Lender entity.
    */

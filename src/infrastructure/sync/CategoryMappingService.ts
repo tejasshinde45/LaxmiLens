@@ -50,6 +50,18 @@ export class CategoryMappingService implements ICategoryResolver {
   }
 
   /**
+   * Updates only the in-memory mapping fallback cache (used after durable atomic syncMetadata writes).
+   */
+  public cacheMappingInMemory(localId: string, cloudUuid: string, userId: string): void {
+    if (!localId || !cloudUuid || !userId) return;
+    const validatedUserId = validateUserId(userId);
+    const key = `cat_map:${validatedUserId}:${localId}`;
+    const reverseKey = `cat_rev:${validatedUserId}:${cloudUuid}`;
+    this.inMemoryFallback.set(key, cloudUuid);
+    this.inMemoryFallback.set(reverseKey, localId);
+  }
+
+  /**
    * Durably persists local category ID to cloud category UUID mapping in Dexie syncMetadata.
    */
   public async setMapping(localId: string, cloudUuid: string, userId: string): Promise<void> {
@@ -58,8 +70,7 @@ export class CategoryMappingService implements ICategoryResolver {
     const key = `cat_map:${validatedUserId}:${localId}`;
     const reverseKey = `cat_rev:${validatedUserId}:${cloudUuid}`;
 
-    this.inMemoryFallback.set(key, cloudUuid);
-    this.inMemoryFallback.set(reverseKey, localId);
+    this.cacheMappingInMemory(localId, cloudUuid, validatedUserId);
 
     const activeDb = this.database ?? db;
     if (activeDb?.isOpen()) {

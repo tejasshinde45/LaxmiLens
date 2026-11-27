@@ -10,9 +10,11 @@ import {
 } from '@/infrastructure/sync/ManualSyncCoordinator';
 import { defaultDatabaseManager } from '@/infrastructure/database/local/DatabaseManager';
 import { NoActiveDatabaseSessionError } from '@/infrastructure/database/local/errors/DatabaseErrors';
-import { notificationQueryKeys } from '@/features/notifications/hooks/notificationQueryKeys';
 import { triggerAlertEvaluationSafely } from '@/features/notifications/services/financialAlertEvaluator';
 import { OFFLINE_QUERY_STALE_TIME_MS } from '@/features/sync/utils/pendingOutboxQuery';
+import { isResultFullySynchronized } from '@/infrastructure/sync/AutoSyncScheduler';
+import { ReactQueryBackupCacheInvalidator } from '@/infrastructure/backup/ReactQueryBackupCacheInvalidator';
+import { useAutoSyncState } from '@/hooks/useAutoSyncState';
 
 async function resolveSyncCoordinator(): Promise<ManualSyncCoordinator> {
   try {
@@ -42,6 +44,7 @@ export function useAccountSync(explicitClient?: QueryClient) {
   }
 
   const pendingQueryKey = ['syncPendingCount', user?.id];
+  const syncState = useAutoSyncState();
 
   // Query pending outbox count for coordinated entities without background polling or auto-refetch triggers
   const { data: pendingCount = 0 } = useQuery<number>(
@@ -73,51 +76,41 @@ export function useAccountSync(explicitClient?: QueryClient) {
         return await coordinator.run();
       },
       onSuccess: (result) => {
-        const hasFailures = result.failedCount > 0;
+        const hasFailures =
+          result.failedCount > 0 || (result.errors?.length ?? 0) > 0 || !!result.authPaused;
         const totalMoved = result.syncedCount + result.pulledCount;
+        const fullySynced = isResultFullySynchronized(result);
 
-        // Preserve financial invalidations when sync succeeded or processed updates
-        if (!hasFailures || totalMoved > 0) {
-          client.invalidateQueries({ queryKey: ['accounts', user?.id] });
-          client.invalidateQueries({ queryKey: ['categories', user?.id] });
-          client.invalidateQueries({ queryKey: ['transactions', user?.id] });
-          client.invalidateQueries({ queryKey: ['budgets', user?.id] });
-          client.invalidateQueries({ queryKey: ['borrowings', user?.id] });
-          client.invalidateQueries({ queryKey: ['recurring', user?.id] });
-          client.invalidateQueries({ queryKey: ['pendingOutboxBudgetIds', user?.id] });
-          client.invalidateQueries({ queryKey: ['pendingOutboxTxIds', user?.id] });
-          client.invalidateQueries({ queryKey: ['pendingOutboxRecurringIds', user?.id] });
-          client.invalidateQueries({ queryKey: ['pendingOutboxEntries', user?.id] });
-          client.invalidateQueries({ queryKey: pendingQueryKey });
-        }
+        // Centralized query cache invalidation respecting failure boundaries
+        if (user?.id && (!hasFailures || totalMoved > 0)) {
+          const invalidator = new ReactQueryBackupCacheInvalidator(client);
+          void invalidator.invalidateUserCaches(user.id, {
+            includeNotifications: !hasFailures
+          });
 
-        // Refresh notification & preference caches only after successful synchronization
-        if (!hasFailures && user?.id) {
-          client.invalidateQueries({ queryKey: notificationQueryKeys.all(user.id) });
-          client.invalidateQueries({ queryKey: notificationQueryKeys.preferences(user.id) });
-          client.invalidateQueries({ queryKey: notificationQueryKeys.pendingOutbox(user.id) });
-
-          if (totalMoved > 0) {
+          if (!hasFailures && totalMoved > 0) {
             triggerAlertEvaluationSafely(user.id, client);
           }
         }
 
-        if (result.syncedCount > 0 && result.failedCount === 0) {
+        if (fullySynced && result.syncedCount > 0) {
           toast.success(
             `Successfully synchronized ${result.syncedCount} update${result.syncedCount > 1 ? 's' : ''} to cloud.`
           );
-        } else if (result.pulledCount > 0 && result.failedCount === 0) {
+        } else if (fullySynced && result.pulledCount > 0) {
           toast.success(
             `Pulled ${result.pulledCount} update${result.pulledCount > 1 ? 's' : ''} from cloud.`
           );
-        } else if (result.syncedCount > 0 && result.failedCount > 0) {
+        } else if (result.syncedCount > 0 && (hasFailures || result.stillPendingCount > 0)) {
           toast.warning(
-            `Synchronized ${result.syncedCount} item(s), but ${result.failedCount} had issues and remain saved locally.`
+            `Synchronized ${result.syncedCount} item(s), while ${Math.max(result.failedCount, result.stillPendingCount)} remain saved locally.`
           );
-        } else if (result.failedCount > 0) {
+        } else if (hasFailures) {
           toast.error(
             'Cloud synchronization could not be completed. Your changes remain safely saved locally.'
           );
+        } else if (result.stillPendingCount > 0) {
+          toast.info('Changes remain saved locally and will synchronize automatically when ready.');
         } else {
           toast.info('All changes are up to date with the cloud.');
         }
@@ -139,9 +132,10 @@ export function useAccountSync(explicitClient?: QueryClient) {
 
   return {
     syncNow: syncMutation.mutateAsync,
-    isSyncing: syncMutation.isPending,
+    isSyncing: syncMutation.isPending || syncState.isSyncing,
     pendingCount,
     lastResult: syncMutation.data,
-    isAuthenticated
+    isAuthenticated,
+    syncState
   };
 }

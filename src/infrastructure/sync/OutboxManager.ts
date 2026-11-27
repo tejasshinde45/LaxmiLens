@@ -3,9 +3,13 @@ import { SyncPort, OutboxEntry, SyncResult } from '@/application/ports/SyncPort'
 import { db, LaxmiLensDB } from '../database/local/DexieDatabase';
 import { LocalOutboxRecord } from '../database/local/schema';
 import { validateUserId } from '@/domain/value-objects/Identifiers';
+import { LocalWriteCommitNotifier } from './LocalWriteCommitNotifier';
 
 export class OutboxManager implements SyncPort {
-  constructor(private readonly database: LaxmiLensDB = db) {}
+  constructor(
+    private readonly database: LaxmiLensDB = db,
+    private readonly commitNotifier?: LocalWriteCommitNotifier
+  ) {}
 
   public async enqueue(entry: Omit<OutboxEntry, 'id' | 'attempts' | 'createdAt'>): Promise<void> {
     const validatedUserId = validateUserId(entry.userId);
@@ -34,6 +38,7 @@ export class OutboxManager implements SyncPort {
     };
 
     await this.database.syncOutbox.add(record);
+    this.commitNotifier?.recordOutboxWrite();
   }
 
   public async getPendingCount(userId: string): Promise<number> {
@@ -42,11 +47,23 @@ export class OutboxManager implements SyncPort {
   }
 
   public async getPendingEntries(userId: string, limit = 50): Promise<LocalOutboxRecord[]> {
+    return this.getPendingEntriesPage(userId, limit);
+  }
+
+  public async getPendingEntriesPage(
+    userId: string,
+    limit = 50,
+    afterId?: number
+  ): Promise<LocalOutboxRecord[]> {
     const validatedUserId = validateUserId(userId);
     const safeLimit = Math.max(1, Math.floor(Number.isFinite(limit) && limit > 0 ? limit : 50));
+    const lowerBound =
+      typeof afterId === 'number' && Number.isFinite(afterId) ? afterId : Dexie.minKey;
+    const includeLower = typeof afterId !== 'number' || !Number.isFinite(afterId);
+
     return this.database.syncOutbox
       .where('[userId+id]')
-      .between([validatedUserId, Dexie.minKey], [validatedUserId, Dexie.maxKey])
+      .between([validatedUserId, lowerBound], [validatedUserId, Dexie.maxKey], includeLower, true)
       .limit(safeLimit)
       .toArray();
   }

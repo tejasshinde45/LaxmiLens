@@ -6,7 +6,10 @@ import { defaultDatabaseManager } from '@/infrastructure/database/local/Database
 import { defaultLegacyMigrator } from '@/infrastructure/database/local/LegacyDatabaseMigrator';
 import { isValidUuid } from '@/domain/value-objects/Identifiers';
 import { queryClient } from '@/lib/queryClient';
-import { resetNotificationEvaluationState } from '@/features/notifications/services/financialAlertEvaluator';
+import {
+  resetNotificationEvaluationState,
+  triggerAlertEvaluationSafely
+} from '@/features/notifications/services/financialAlertEvaluator';
 
 export interface AuthContextType {
   user: AuthUser | null;
@@ -77,11 +80,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
         setUser(nextUser);
         setInitError(null);
         setIsLoading(false);
+        defaultDatabaseManager.notifySessionReady?.(nextUser.id);
         return;
       }
 
+      let databaseOpened = false;
       try {
         const targetDb = await defaultDatabaseManager.openForUser(nextUser.id);
+        databaseOpened = true;
         if (transitionGenerationRef.current !== currentTransition) return;
 
         // Await legacy data migration before exposing application interface
@@ -96,7 +102,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
         setUser(nextUser);
         setInitError(null);
         setIsLoading(false);
+        defaultDatabaseManager.notifySessionReady?.(nextUser.id);
       } catch (err) {
+        if (databaseOpened) {
+          await defaultDatabaseManager.closeCurrentDatabase?.().catch(() => undefined);
+        }
         if (transitionGenerationRef.current !== currentTransition) return;
         console.error('Failed to open database or complete legacy migration for user session:', err);
         // Do NOT expose normal authenticated application on DB/migration failure
@@ -122,6 +132,25 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
     }
   }, [activeQueryClient]);
 
+  // Register centralized post-sync alert evaluation on the active DatabaseManager
+  useEffect(() => {
+    const unsubscribeSyncCompletion = defaultDatabaseManager.subscribeSyncCompletion?.(
+      (syncedUserId, result) => {
+        if (
+          result.failedCount === 0 &&
+          !result.authPaused &&
+          result.syncedCount + result.pulledCount > 0
+        ) {
+          triggerAlertEvaluationSafely(syncedUserId, activeQueryClient);
+        }
+      }
+    );
+
+    return () => {
+      unsubscribeSyncCompletion?.();
+    };
+  }, [activeQueryClient]);
+
   // Initial session restoration & state listener
   useEffect(() => {
     let isMounted = true;
@@ -141,9 +170,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
       });
 
     // 2. Subscribe to auth state changes (e.g. token refresh, sign-in, sign-out)
-    const unsubscribe = authAdapter.onAuthStateChange((updatedUser) => {
+    const unsubscribe = authAdapter.onAuthStateChange((updatedUser, event) => {
       if (isMounted) {
         handleUserChange(updatedUser);
+        if (
+          updatedUser?.id &&
+          (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN' || event === 'USER_UPDATED')
+        ) {
+          defaultDatabaseManager.notifyAuthRefreshed?.(updatedUser.id);
+        }
       }
     });
 

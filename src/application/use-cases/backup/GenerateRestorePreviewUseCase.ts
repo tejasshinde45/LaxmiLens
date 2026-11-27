@@ -12,8 +12,8 @@ import { BackupValidationService } from '@/application/services/BackupValidation
 import { InvalidBackupFormatError } from '@/domain/errors/BackupErrors';
 import { DecryptBackupFileUseCase } from './DecryptBackupFileUseCase';
 import {
-  assertNoManualSyncRunning,
-  resolveVerifiedBackupActor
+  resolveVerifiedBackupActor,
+  runWithExclusiveBackupLock
 } from './backupUseCaseHelpers';
 
 /**
@@ -36,39 +36,49 @@ export class GenerateRestorePreviewUseCase {
   public async execute(
     input: GenerateRestorePreviewInputDTO
   ): Promise<RestorePreviewSummaryDTO> {
-    assertNoManualSyncRunning(this.syncGuard);
-    const actor = await resolveVerifiedBackupActor(this.authPort, this.scopedUserId);
+    return runWithExclusiveBackupLock(
+      this.syncGuard,
+      'restore',
+      async () => {
+        const actor = await resolveVerifiedBackupActor(this.authPort, this.scopedUserId);
 
-    let archive: BackupArchiveDocument | undefined = input.archive;
-    if (!archive) {
-      if (input.file !== undefined || input.rawContent !== undefined) {
-        const decrypted = await this.decryptUseCase.execute({
-          file: input.file,
-          rawContent: input.rawContent,
-          passphrase: input.passphrase ?? ''
+        let archive: BackupArchiveDocument | undefined = input.archive;
+        if (!archive) {
+          if (input.file !== undefined || input.rawContent !== undefined) {
+            const decryptArgs = {
+              file: input.file,
+              rawContent: input.rawContent,
+              passphrase: input.passphrase ?? ''
+            };
+            const decrypted =
+              typeof this.decryptUseCase.executeUnlocked === 'function'
+                ? await this.decryptUseCase.executeUnlocked(decryptArgs)
+                : await this.decryptUseCase.execute(decryptArgs);
+            archive = decrypted.archive;
+          } else {
+            throw new InvalidBackupFormatError(
+              'Either a decrypted backup archive or encrypted backup file is required to generate a preview.'
+            );
+          }
+        }
+
+        const targetSummary = await this.backupStorage.getTargetRestoreSummary(actor.userId);
+        const currentDexieSchemaVersion = this.backupStorage.getDexieSchemaVersion();
+
+        return await this.validationService.validateForRestore(archive, {
+          authenticatedUserId: actor.userId,
+          currentDexieSchemaVersion,
+          mode: input.mode,
+          restorePendingOutbox: input.restorePendingOutbox ?? true,
+          confirmationText: input.confirmationText,
+          safetyBackupConfirmed: input.safetyBackupConfirmed,
+          targetSummary: {
+            ...targetSummary,
+            currentDexieSchemaVersion
+          }
         });
-        archive = decrypted.archive;
-      } else {
-        throw new InvalidBackupFormatError(
-          'Either a decrypted backup archive or encrypted backup file is required to generate a preview.'
-        );
-      }
-    }
-
-    const targetSummary = await this.backupStorage.getTargetRestoreSummary(actor.userId);
-    const currentDexieSchemaVersion = this.backupStorage.getDexieSchemaVersion();
-
-    return await this.validationService.validateForRestore(archive, {
-      authenticatedUserId: actor.userId,
-      currentDexieSchemaVersion,
-      mode: input.mode,
-      restorePendingOutbox: input.restorePendingOutbox ?? true,
-      confirmationText: input.confirmationText,
-      safetyBackupConfirmed: input.safetyBackupConfirmed,
-      targetSummary: {
-        ...targetSummary,
-        currentDexieSchemaVersion
-      }
-    });
+      },
+      { broadcastRestoreCompleted: false }
+    );
   }
 }

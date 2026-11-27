@@ -5,7 +5,7 @@ import { AuthPort, AuthUser } from '@/application/ports/AuthPort';
 import { OutboxManager } from '@/infrastructure/sync/OutboxManager';
 import { LocalOutboxRecord } from '@/infrastructure/database/local/schema';
 import { CloudAccountRow } from '@/infrastructure/database/cloud/mappers/AccountMapper';
-import { SyncAuthError } from '@/infrastructure/sync/errors/SyncErrors';
+import { SyncAuthError, SyncInProgressError } from '@/infrastructure/sync/errors/SyncErrors';
 
 describe('AccountSyncDispatcher', () => {
   const validId = '123e4567-e89b-12d3-a456-426614174000';
@@ -419,6 +419,132 @@ describe('AccountSyncDispatcher', () => {
       await expect(dispatcher.dispatch(entry)).rejects.toThrow('Cloud DB Connection Lost');
       expect(mockOutboxManager.markSuccess).not.toHaveBeenCalled();
       expect(mockOutboxManager.markFailure).toHaveBeenCalledWith(109, 'Cloud DB Connection Lost');
+    });
+  });
+
+  describe('Per-Account In-Flight Concurrency Protection', () => {
+    const secondAccountId = '223e4567-e89b-12d3-a456-426614174099';
+
+    it('rejects duplicate concurrent dispatch for the same accountId with SyncInProgressError without calling markFailure, and releases lock afterwards', async () => {
+      let releaseFirstCall: () => void = () => {};
+      const firstCallGate = new Promise<void>((resolve) => {
+        releaseFirstCall = resolve;
+      });
+
+      (mockRepo.insert as any).mockImplementationOnce(async () => {
+        await firstCallGate;
+        return sampleCloudRow;
+      });
+
+      const entry1: LocalOutboxRecord = {
+        id: 201,
+        userId: validUserId,
+        entity: 'accounts',
+        entityId: validId,
+        operation: 'INSERT',
+        payload: {
+          id: validId,
+          user_id: validUserId,
+          name: 'Salary Account',
+          account_type: 'bank',
+          opening_balance_paise: 500000,
+          version: 1
+        },
+        idempotencyKey: 'k-inflight-1',
+        attempts: 0,
+        createdAt: new Date().toISOString()
+      };
+
+      const entry2: LocalOutboxRecord = {
+        ...entry1,
+        id: 202,
+        operation: 'UPDATE',
+        payload: {
+          id: validId,
+          user_id: validUserId,
+          name: 'Salary Account Renamed',
+          version: 2
+        },
+        idempotencyKey: 'k-inflight-2'
+      };
+
+      const firstPromise = dispatcher.dispatch(entry1);
+      await expect(dispatcher.dispatch(entry2)).rejects.toThrow(SyncInProgressError);
+      expect(mockOutboxManager.markFailure).not.toHaveBeenCalled();
+
+      releaseFirstCall();
+      await expect(firstPromise).resolves.toBeUndefined();
+      expect(mockOutboxManager.markSuccess).toHaveBeenCalledWith(201);
+
+      // Lock must release cleanly so subsequent dispatch for the same account succeeds
+      (mockRepo.updatePartial as any).mockResolvedValueOnce({ ...sampleCloudRow, version: 2 });
+      await expect(dispatcher.dispatch(entry2)).resolves.toBeUndefined();
+      expect(mockOutboxManager.markSuccess).toHaveBeenCalledWith(202);
+    });
+
+    it('allows distinct accounts to dispatch concurrently and releases lock even when dispatch throws', async () => {
+      let releaseFirst: () => void = () => {};
+      const gate = new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+
+      (mockRepo.insert as any)
+        .mockImplementationOnce(async () => {
+          await gate;
+          throw new Error('Transient failure for first account');
+        })
+        .mockResolvedValueOnce({ ...sampleCloudRow, id: secondAccountId, name: 'Second' });
+
+      const accountA: LocalOutboxRecord = {
+        id: 203,
+        userId: validUserId,
+        entity: 'accounts',
+        entityId: validId,
+        operation: 'INSERT',
+        payload: {
+          id: validId,
+          user_id: validUserId,
+          name: 'Account A',
+          account_type: 'bank',
+          opening_balance_paise: 0,
+          version: 1
+        },
+        idempotencyKey: 'k-a',
+        attempts: 0,
+        createdAt: new Date().toISOString()
+      };
+
+      const accountB: LocalOutboxRecord = {
+        id: 204,
+        userId: validUserId,
+        entity: 'accounts',
+        entityId: secondAccountId,
+        operation: 'INSERT',
+        payload: {
+          id: secondAccountId,
+          user_id: validUserId,
+          name: 'Account B',
+          account_type: 'cash',
+          opening_balance_paise: 10000,
+          version: 1
+        },
+        idempotencyKey: 'k-b',
+        attempts: 0,
+        createdAt: new Date().toISOString()
+      };
+
+      const p1 = dispatcher.dispatch(accountA);
+      const p2 = dispatcher.dispatch(accountB);
+      await expect(p2).resolves.toBeUndefined();
+      expect(mockOutboxManager.markSuccess).toHaveBeenCalledWith(204);
+
+      releaseFirst();
+      await expect(p1).rejects.toThrow('Transient failure for first account');
+      expect(mockOutboxManager.markFailure).toHaveBeenCalledWith(203, 'Transient failure for first account');
+
+      // Lock was released in finally despite error
+      (mockRepo.insert as any).mockResolvedValueOnce(sampleCloudRow);
+      await expect(dispatcher.dispatch(accountA)).resolves.toBeUndefined();
     });
   });
 });

@@ -193,7 +193,7 @@ test.describe('Phase 12 Stage 3A: Keyboard & Accessibility Verification', () => 
       const mainFocused = await page.evaluate(() => document.activeElement?.id === 'main-content');
       expect(mainFocused).toBe(true);
 
-      // Sidebar collapse/expand keyboard + aria-expanded check
+      // Sidebar collapse/expand keyboard + aria-expanded + visual rounded-square geometry check
       const collapseBtn = page.getByRole('button', { name: 'Collapse sidebar' });
       await collapseBtn.click();
       const expandBtn = page.getByRole('button', { name: 'Expand sidebar' });
@@ -201,6 +201,57 @@ test.describe('Phase 12 Stage 3A: Keyboard & Accessibility Verification', () => 
       await expect(
         page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Budgets' })
       ).toBeVisible();
+
+      const collapsedVisualState = await page.evaluate(() => {
+        const aside = document.querySelector('aside')!;
+        const brandBox = aside.querySelector('.h-9.w-9')!.getBoundingClientRect();
+        const links = Array.from(aside.querySelectorAll('nav a')).map((a) => {
+          const r = a.getBoundingClientRect();
+          const s = getComputedStyle(a);
+          const svg = a.querySelector('svg')!.getBoundingClientRect();
+          return {
+            label: a.getAttribute('aria-label'),
+            isActive: a.getAttribute('aria-current') === 'page',
+            width: Math.round(r.width),
+            height: Math.round(r.height),
+            borderRadius: s.borderRadius,
+            borderColor: s.borderColor,
+            bgColor: s.backgroundColor,
+            svgWidth: Math.round(svg.width),
+            svgHeight: Math.round(svg.height),
+            offsetLeft: Math.round(svg.left - r.left),
+            offsetTop: Math.round(svg.top - r.top)
+          };
+        });
+        return { brandWidth: Math.round(brandBox.width), brandHeight: Math.round(brandBox.height), links };
+      });
+
+      expect(collapsedVisualState.brandWidth).toBe(36);
+      expect(collapsedVisualState.brandHeight).toBe(36);
+      expect(collapsedVisualState.links.length).toBe(11);
+      for (const item of collapsedVisualState.links) {
+        expect(item.width).toBe(40);
+        expect(item.height).toBe(40);
+        expect(item.borderRadius).toBe('10px');
+        expect(item.svgWidth).toBe(18);
+        expect(item.svgHeight).toBe(18);
+        expect(item.offsetLeft).toBe(11);
+        expect(item.offsetTop).toBe(11);
+        if (item.isActive) {
+          expect(item.bgColor).not.toBe('rgba(0, 0, 0, 0)');
+          expect(item.borderColor).not.toBe('rgba(0, 0, 0, 0)');
+        } else {
+          expect(item.borderColor).toBe('rgba(0, 0, 0, 0)');
+        }
+      }
+
+      // Hover collapsed item and confirm tooltip displays target page label
+      await page
+        .getByRole('navigation', { name: 'Main navigation' })
+        .getByRole('link', { name: 'Transactions' })
+        .hover();
+      await expect(page.getByRole('tooltip', { name: 'Transactions' })).toBeVisible();
+
       await expandBtn.click();
 
       // Open CommandPalette with Ctrl+K -> launch Quick Add -> verify dialog focus containment + Escape
