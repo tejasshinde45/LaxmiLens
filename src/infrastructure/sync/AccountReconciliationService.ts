@@ -26,6 +26,7 @@ export interface AccountReconciliationResult {
   pulledCount: number;
   insertedCount: number;
   updatedCount: number;
+  deletedCount: number;
   remappedFromAccountId: string | null;
   canonicalBorrowingsAccountId: string | null;
   remappedReferencesCount: number;
@@ -127,7 +128,9 @@ export class AccountReconciliationService {
       );
     }
 
-    const cloudRows = await this.cloudAccountRepo.findAll(authenticatedUserId);
+    const cloudRows = await this.cloudAccountRepo.findAll(authenticatedUserId, {
+      includeDeleted: true
+    });
     for (const row of cloudRows) {
       AccountMapper.validateCloudRow(row);
       if (row.user_id !== authenticatedUserId) {
@@ -141,6 +144,7 @@ export class AccountReconciliationService {
       pulledCount: 0,
       insertedCount: 0,
       updatedCount: 0,
+      deletedCount: 0,
       remappedFromAccountId: null,
       canonicalBorrowingsAccountId: null,
       remappedReferencesCount: 0,
@@ -177,7 +181,7 @@ export class AccountReconciliationService {
         // PHASE 1: Personal Borrowings Canonical Identity Reconciliation
         // -------------------------------------------------------------------
         const cloudPBAccounts = cloudRows.filter(
-          (row) => row.system_tag === 'personal_borrowings'
+          (row) => row.system_tag === 'personal_borrowings' && (row.deleted_at === undefined || row.deleted_at === null)
         );
 
         if (cloudPBAccounts.length > 1) {
@@ -495,6 +499,66 @@ export class AccountReconciliationService {
         const pendingAccountIds = new Set<string>(
           allOutbox.filter((e) => e.entity === 'accounts').map((e) => e.entityId)
         );
+
+        const pendingReferencingAccountIds = new Set<string>();
+        const refPayloadFields = [
+          ...ACCOUNT_REFERENCE_PAYLOAD_FIELDS,
+          ...DISALLOWED_PB_REFERENCE_PAYLOAD_FIELDS
+        ];
+        for (const outboxEntry of allOutbox) {
+          const payload = outboxEntry.payload || {};
+          for (const field of refPayloadFields) {
+            const ref = payload[field];
+            if (typeof ref === 'string' && ref.length > 0) {
+              pendingReferencingAccountIds.add(ref);
+            }
+          }
+        }
+
+        const localReferencingAccountIds = new Set<string>();
+        const [localTxs, localRules, localBorrowings, localRepayments] = await Promise.all([
+          this.database.transactions
+            .where('userId')
+            .equals(authenticatedUserId)
+            .toArray() as Promise<LocalTransactionRecord[]>,
+          this.database.recurringRules
+            .where('userId')
+            .equals(authenticatedUserId)
+            .toArray() as Promise<LocalRecurringRuleRecord[]>,
+          this.database.borrowings
+            .where('userId')
+            .equals(authenticatedUserId)
+            .toArray() as Promise<LocalBorrowingRecord[]>,
+          this.database.borrowingRepayments
+            .where('userId')
+            .equals(authenticatedUserId)
+            .toArray() as Promise<LocalBorrowingRepaymentRecord[]>
+        ]);
+
+        const addLocalAccountRef = (accountId: string | null | undefined) => {
+          if (typeof accountId === 'string' && accountId.length > 0) {
+            localReferencingAccountIds.add(accountId);
+          }
+        };
+
+        for (const tx of localTxs) {
+          addLocalAccountRef(tx.accountId);
+          addLocalAccountRef(tx.account_id);
+          addLocalAccountRef(tx.destinationAccountId);
+          addLocalAccountRef(tx.destination_account_id);
+        }
+        for (const rule of localRules) {
+          addLocalAccountRef(rule.accountId);
+        }
+        for (const borrowing of localBorrowings) {
+          addLocalAccountRef(borrowing.receivingAccountId);
+          addLocalAccountRef(borrowing.receiving_account_id);
+        }
+        for (const repayment of localRepayments) {
+          addLocalAccountRef(repayment.paymentAccountId);
+          addLocalAccountRef(repayment.payment_account_id);
+        }
+
         const localById = new Map<string, LocalAccountRecord>(
           localAccounts.map((a) => [a.id, a])
         );
@@ -502,13 +566,75 @@ export class AccountReconciliationService {
           (a) => a.systemTag === 'personal_borrowings'
         );
 
-        for (const cloudRow of cloudRows) {
+        // Apply deletion tombstones deterministically before active account upserts
+        const tombstones = cloudRows.filter(
+          (r) => r.deleted_at !== undefined && r.deleted_at !== null
+        );
+        const activeRows = cloudRows.filter(
+          (r) => r.deleted_at === undefined || r.deleted_at === null
+        );
+        const orderedCloudRows = [...tombstones, ...activeRows];
+
+        for (const cloudRow of orderedCloudRows) {
           if (blockedSet.has(cloudRow.id)) {
             continue;
           }
 
           if (pendingAccountIds.has(cloudRow.id)) {
             result.skippedPendingCount++;
+            continue;
+          }
+
+          const isCloudDeleted =
+            cloudRow.deleted_at !== undefined && cloudRow.deleted_at !== null;
+          const localExisting = localById.get(cloudRow.id);
+
+          if (isCloudDeleted) {
+            if (!localExisting) {
+              // Idempotent repeated pull: deleted account stays absent and is never recreated
+              continue;
+            }
+
+            if (
+              localExisting.systemTag === 'personal_borrowings' ||
+              cloudRow.system_tag === 'personal_borrowings' ||
+              localExisting.name.trim().toLowerCase() === 'personal borrowings'
+            ) {
+              result.conflictCount++;
+              result.conflicts.push({
+                accountId: cloudRow.id,
+                reason: `Cloud tombstone references system account '${cloudRow.id}'. System account preserved locally.`
+              });
+              continue;
+            }
+
+            if (pendingReferencingAccountIds.has(cloudRow.id)) {
+              result.skippedPendingCount++;
+              continue;
+            }
+
+            if (localReferencingAccountIds.has(cloudRow.id)) {
+              result.conflictCount++;
+              result.conflicts.push({
+                accountId: cloudRow.id,
+                reason: `Remote account '${cloudRow.id}' was marked deleted in cloud, but local transactions, recurring rules, or borrowings still reference it. Local account and financial records preserved.`
+              });
+              continue;
+            }
+
+            const localVersion = localExisting.version ?? 1;
+            if (cloudRow.version >= localVersion) {
+              await this.database.accounts.delete(cloudRow.id);
+              localById.delete(cloudRow.id);
+              result.deletedCount++;
+              result.pulledCount++;
+            } else {
+              result.conflictCount++;
+              result.conflicts.push({
+                accountId: cloudRow.id,
+                reason: `Remote deletion tombstone on account '${cloudRow.id}' has older version (${cloudRow.version}) than local (${localVersion}). Local record preserved.`
+              });
+            }
             continue;
           }
 
@@ -526,7 +652,6 @@ export class AccountReconciliationService {
             continue;
           }
 
-          const localExisting = localById.get(cloudRow.id);
           const mappedRecord = AccountMapper.toLocalRecord(cloudRow);
 
           if (!localExisting) {

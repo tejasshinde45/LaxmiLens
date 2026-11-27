@@ -21,6 +21,7 @@ export interface CloudAccountRow {
   system_tag?: string | null;
   is_archived: boolean;
   version: number;
+  deleted_at?: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -61,6 +62,13 @@ export class AccountMapper {
     }
     if (typeof row.version !== 'number' || !Number.isSafeInteger(row.version) || row.version < 1) {
       throw new Error(`Invalid cloud account version '${row.version}' on '${row.id}'.`);
+    }
+    if (
+      row.deleted_at !== undefined &&
+      row.deleted_at !== null &&
+      (typeof row.deleted_at !== 'string' || Number.isNaN(Date.parse(row.deleted_at)))
+    ) {
+      throw new Error(`Invalid cloud account deleted_at timestamp '${row.deleted_at}' on '${row.id}'.`);
     }
   }
 

@@ -22,13 +22,22 @@ export interface ISupabaseAccountRepository {
     patch: Partial<CloudAccountRow>,
     expectedVersion: number
   ): Promise<CloudAccountRow>;
-  safeDelete?(id: string, userId: string, expectedVersion: number): Promise<void>;
+  safeDelete?(
+    id: string,
+    userId: string,
+    expectedVersion: number,
+    deletedAt?: string
+  ): Promise<void>;
   findById(id: string): Promise<CloudAccountRow | null>;
-  findAll(userId: string): Promise<CloudAccountRow[]>;
+  findAll(userId: string, options?: { includeDeleted?: boolean }): Promise<CloudAccountRow[]>;
   findPage?(
     userId: string,
-    options?: { offset?: number; limit?: number }
+    options?: { offset?: number; limit?: number; includeDeleted?: boolean }
   ): Promise<{ rows: CloudAccountRow[]; hasMore: boolean; nextOffset: number }>;
+}
+
+function isAccountDeleted(row: CloudAccountRow): boolean {
+  return row.deleted_at !== undefined && row.deleted_at !== null;
 }
 
 export class SupabaseAccountRepository implements ISupabaseAccountRepository {
@@ -38,10 +47,17 @@ export class SupabaseAccountRepository implements ISupabaseAccountRepository {
    * Inserts a new account row into PostgreSQL.
    * If error 23505 (unique violation on ID) occurs:
    * - Performs an idempotent reconciliation check under current user context.
+   * - Rejects recreation of tombstoned (permanently deleted) accounts.
    * - If already persisted with identical fields, returns the existing record.
    * - If differing data or owned by another tenant, raises SyncConflictError.
    */
   public async insert(account: CloudAccountRow): Promise<CloudAccountRow> {
+    if (isAccountDeleted(account)) {
+      throw new SyncConflictError(
+        `Cannot insert account '${account.id}' with deleted_at already set.`
+      );
+    }
+
     // 1. If this is the designated Personal Borrowings system account, provision via authorized SECURITY DEFINER RPC
     if (account.system_tag === 'personal_borrowings') {
       const { data, error } = await this.client.rpc('provision_personal_borrowings_account', {
@@ -107,6 +123,13 @@ export class SupabaseAccountRepository implements ISupabaseAccountRepository {
           );
         }
 
+        if (isAccountDeleted(existing)) {
+          throw new SyncConflictError(
+            `Account ID '${account.id}' was permanently deleted in cloud and cannot be recreated.`,
+            existing
+          );
+        }
+
         // Compare creation fields
         const isIdentical =
           existing.name === account.name &&
@@ -140,6 +163,13 @@ export class SupabaseAccountRepository implements ISupabaseAccountRepository {
         );
       }
 
+      if (
+        error.code === '40001' ||
+        (typeof error.message === 'string' && error.message.toLowerCase().includes('permanently deleted'))
+      ) {
+        throw new SyncConflictError(error.message);
+      }
+
       throw new SyncDatabaseError(error.message, error.code, error);
     }
 
@@ -148,6 +178,12 @@ export class SupabaseAccountRepository implements ISupabaseAccountRepository {
     }
 
     const verified = data as CloudAccountRow;
+    if (isAccountDeleted(verified)) {
+      throw new SyncConflictError(
+        `Account ID '${account.id}' was permanently deleted in cloud.`,
+        verified
+      );
+    }
     this.verifyPersistedRow(verified, account.id, account.user_id, account.version);
     return verified;
   }
@@ -170,6 +206,7 @@ export class SupabaseAccountRepository implements ISupabaseAccountRepository {
     delete sanitizedPatch.created_at;
     delete sanitizedPatch.currency;
     delete sanitizedPatch.system_tag;
+    delete sanitizedPatch.deleted_at;
 
     // Ensure updated_at is populated
     if (!sanitizedPatch.updated_at) {
@@ -193,11 +230,23 @@ export class SupabaseAccountRepository implements ISupabaseAccountRepository {
           error
         );
       }
+      if (
+        error.code === '40001' ||
+        (typeof error.message === 'string' && error.message.toLowerCase().includes('deleted'))
+      ) {
+        throw new SyncConflictError(error.message);
+      }
       throw new SyncDatabaseError(error.message, error.code, error);
     }
 
     if (data) {
       const verified = data as CloudAccountRow;
+      if (isAccountDeleted(verified)) {
+        throw new SyncConflictError(
+          `Cannot update account '${id}': account is marked deleted in cloud.`,
+          verified
+        );
+      }
       const targetVersion = patch.version ?? expectedVersion + 1;
       this.verifyPersistedRow(verified, id, userId, targetVersion);
       return verified;
@@ -215,6 +264,13 @@ export class SupabaseAccountRepository implements ISupabaseAccountRepository {
     if (current.user_id !== userId) {
       throw new SyncConflictError(
         `Account '${id}' belongs to a different user.`
+      );
+    }
+
+    if (isAccountDeleted(current)) {
+      throw new SyncConflictError(
+        `Cannot update account '${id}': account was permanently deleted in cloud.`,
+        current
       );
     }
 
@@ -257,20 +313,40 @@ export class SupabaseAccountRepository implements ISupabaseAccountRepository {
 
   /**
    * Safely deletes an empty, non-system user account in Supabase Postgres using
-   * optimistic concurrency control and explicit cloud dependency checks before deletion.
+   * optimistic concurrency control, cloud dependency verification, and tombstone
+   * propagation so other devices remove stale local copies on sync.
    * Never cascade-deletes transactions or financial dependencies.
    */
-  public async safeDelete(id: string, userId: string, expectedVersion: number): Promise<void> {
+  public async safeDelete(
+    id: string,
+    userId: string,
+    expectedVersion: number,
+    deletedAt?: string
+  ): Promise<void> {
     if (!userId || userId.trim().length === 0) {
       throw new SyncAuthError('Cannot delete account: userId is required for tenant isolation.');
     }
 
+    let normalizedDeletedAt: string | undefined;
+    if (deletedAt !== undefined) {
+      const parsed = Date.parse(deletedAt);
+      if (Number.isNaN(parsed)) {
+        throw new Error(`Invalid deletedAt timestamp '${deletedAt}' supplied to safeDelete.`);
+      }
+      normalizedDeletedAt = new Date(parsed).toISOString();
+    }
+
     // 1. Prefer server-side transactional RPC when present
     if (typeof this.client.rpc === 'function') {
-      const { error: rpcError } = await this.client.rpc('safe_delete_account', {
+      const rpcArgs: Record<string, unknown> = {
         p_account_id: id,
         p_expected_version: expectedVersion
-      });
+      };
+      if (normalizedDeletedAt !== undefined) {
+        rpcArgs.p_deleted_at = normalizedDeletedAt;
+      }
+
+      const { error: rpcError } = await this.client.rpc('safe_delete_account', rpcArgs);
 
       if (!rpcError) {
         return;
@@ -318,6 +394,11 @@ export class SupabaseAccountRepository implements ISupabaseAccountRepository {
 
     if (current.user_id !== userId) {
       throw new SyncConflictError(`Account '${id}' belongs to a different user.`);
+    }
+
+    if (isAccountDeleted(current)) {
+      // Idempotent delete retry: account already tombstoned in cloud
+      return;
     }
 
     if (
@@ -377,6 +458,55 @@ export class SupabaseAccountRepository implements ISupabaseAccountRepository {
       }
     }
 
+    if ('deleted_at' in current) {
+      const tombstoneAt = normalizedDeletedAt ?? new Date().toISOString();
+      const { data, error } = await this.client
+        .from('accounts')
+        .update({
+          deleted_at: tombstoneAt,
+          updated_at: tombstoneAt,
+          version: expectedVersion + 1
+        })
+        .eq('id', id)
+        .eq('user_id', userId)
+        .eq('version', expectedVersion)
+        .is('deleted_at', null)
+        .select()
+        .maybeSingle();
+
+      if (error) {
+        if (error.code === '23503') {
+          throw new SyncAccountDependencyError(
+            error.message || `Cloud foreign key restriction blocked deletion of account '${id}'.`,
+            id
+          );
+        }
+        if (error.code === '42501') {
+          throw new SyncDatabaseError(
+            'RLS permission denied: Cannot delete account for this user context.',
+            '42501',
+            error
+          );
+        }
+        throw new SyncDatabaseError(error.message, error.code, error);
+      }
+
+      if (!data) {
+        const remaining = await this.findById(id);
+        if (remaining && remaining.user_id === userId && isAccountDeleted(remaining)) {
+          // Concurrent delete tombstone already succeeded
+          return;
+        }
+        if (remaining) {
+          throw new SyncConflictError(
+            `Version conflict deleting account '${id}': cloud version changed to ${remaining.version} (expected ${expectedVersion}).`,
+            remaining
+          );
+        }
+      }
+      return;
+    }
+
     const { data, error } = await this.client
       .from('accounts')
       .delete()
@@ -405,6 +535,9 @@ export class SupabaseAccountRepository implements ISupabaseAccountRepository {
 
     if (!data) {
       const remaining = await this.findById(id);
+      if (remaining && remaining.user_id === userId && isAccountDeleted(remaining)) {
+        return;
+      }
       if (remaining) {
         throw new SyncConflictError(
           `Version conflict deleting account '${id}': cloud version changed to ${remaining.version} (expected ${expectedVersion}).`,
@@ -439,7 +572,7 @@ export class SupabaseAccountRepository implements ISupabaseAccountRepository {
    */
   public async findPage(
     userId: string,
-    options: { offset?: number; limit?: number } = {}
+    options: { offset?: number; limit?: number; includeDeleted?: boolean } = {}
   ): Promise<{ rows: CloudAccountRow[]; hasMore: boolean; nextOffset: number }> {
     if (!userId || userId.trim().length === 0) {
       throw new SyncAuthError('Cannot query accounts: userId is required for tenant isolation.');
@@ -470,25 +603,32 @@ export class SupabaseAccountRepository implements ISupabaseAccountRepository {
     const hasMore = hasRangeMethod<CloudAccountRow>(orderedQuery)
       ? batch.length > safeLimit
       : false;
-    const rows = hasMore ? batch.slice(0, safeLimit) : batch;
+    const pageRows = hasMore ? batch.slice(0, safeLimit) : batch;
 
-    for (const row of rows) {
+    for (const row of pageRows) {
       if (row.user_id !== userId) {
         throw new SyncAuthError(`Retrieved account '${row.id}' belongs to another user.`);
       }
     }
 
+    const rows = options.includeDeleted
+      ? pageRows
+      : pageRows.filter((row) => !isAccountDeleted(row));
+
     return {
       rows,
       hasMore,
-      nextOffset: safeOffset + rows.length
+      nextOffset: safeOffset + pageRows.length
     };
   }
 
   /**
    * Retrieves all accounts belonging to the specified user without silent truncation.
    */
-  public async findAll(userId: string): Promise<CloudAccountRow[]> {
+  public async findAll(
+    userId: string,
+    options: { includeDeleted?: boolean } = {}
+  ): Promise<CloudAccountRow[]> {
     if (!userId || userId.trim().length === 0) {
       throw new SyncAuthError('Cannot query accounts: userId is required for tenant isolation.');
     }
@@ -526,7 +666,9 @@ export class SupabaseAccountRepository implements ISupabaseAccountRepository {
       }
     }
 
-    return rows;
+    return options.includeDeleted
+      ? rows
+      : rows.filter((row) => !isAccountDeleted(row));
   }
 
   private verifyPersistedRow(

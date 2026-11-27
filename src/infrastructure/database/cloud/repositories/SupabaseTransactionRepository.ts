@@ -730,9 +730,9 @@ export class SupabaseTransactionRepository implements ISupabaseTransactionReposi
 
     if (this.accountRepo) {
       const acc = await this.accountRepo.findById(accountId);
-      if (!acc || acc.user_id !== userId) {
+      if (!acc || acc.user_id !== userId || (acc.deleted_at !== undefined && acc.deleted_at !== null)) {
         throw new SyncAccountDependencyError(
-          `Referenced ${label} account '${accountId}' was not found in cloud or does not belong to user '${userId}'.`,
+          `Referenced ${label} account '${accountId}' was not found in cloud, was deleted, or does not belong to user '${userId}'.`,
           accountId
         );
       }
@@ -741,7 +741,7 @@ export class SupabaseTransactionRepository implements ISupabaseTransactionReposi
 
     const { data, error } = await this.client
       .from('accounts')
-      .select('id, user_id')
+      .select('*')
       .eq('id', accountId)
       .eq('user_id', userId)
       .maybeSingle();
@@ -750,9 +750,10 @@ export class SupabaseTransactionRepository implements ISupabaseTransactionReposi
       throw new SyncDatabaseError(error.message, error.code, error);
     }
 
-    if (!data) {
+    const rawAccount = data as { deleted_at?: string | null } | null;
+    if (!rawAccount || (rawAccount.deleted_at !== undefined && rawAccount.deleted_at !== null)) {
       throw new SyncAccountDependencyError(
-        `Referenced ${label} account '${accountId}' was not found in cloud or does not belong to user '${userId}'.`,
+        `Referenced ${label} account '${accountId}' was not found in cloud, was deleted, or does not belong to user '${userId}'.`,
         accountId
       );
     }

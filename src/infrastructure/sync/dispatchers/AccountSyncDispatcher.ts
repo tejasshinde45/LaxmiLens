@@ -122,7 +122,16 @@ export class AccountSyncDispatcher {
         throw new Error(`Invalid version metadata in account DELETE payload for '${entry.entityId}'.`);
       }
 
-      await this.accountRepo.safeDelete(entry.entityId, currentUser.id, expectedVersion);
+      const rawDeletedAt = entry.payload.deleted_at ?? entry.payload.deletedAt;
+      let deletedAt: string | undefined;
+      if (rawDeletedAt !== undefined && rawDeletedAt !== null) {
+        if (typeof rawDeletedAt !== 'string' || Number.isNaN(Date.parse(rawDeletedAt))) {
+          throw new Error(`Invalid deleted_at timestamp '${rawDeletedAt}' in account DELETE payload.`);
+        }
+        deletedAt = new Date(rawDeletedAt).toISOString();
+      }
+
+      await this.accountRepo.safeDelete(entry.entityId, currentUser.id, expectedVersion, deletedAt);
       return;
     }
 

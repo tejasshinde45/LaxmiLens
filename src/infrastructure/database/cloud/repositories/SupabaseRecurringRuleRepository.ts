@@ -64,9 +64,13 @@ export class SupabaseRecurringRuleRepository implements ISupabaseRecurringRuleRe
 
     if (this.accountRepo) {
       const cloudAccount = await this.accountRepo.findById(rule.account_id);
-      if (!cloudAccount || cloudAccount.user_id !== rule.user_id) {
+      if (
+        !cloudAccount ||
+        cloudAccount.user_id !== rule.user_id ||
+        (cloudAccount.deleted_at !== undefined && cloudAccount.deleted_at !== null)
+      ) {
         throw new SyncAccountDependencyError(
-          `Cannot persist recurring rule '${rule.id}': Account '${rule.account_id}' not found in cloud.`,
+          `Cannot persist recurring rule '${rule.id}': Account '${rule.account_id}' was not found in cloud or was deleted.`,
           rule.account_id
         );
       }
@@ -150,6 +154,20 @@ export class SupabaseRecurringRuleRepository implements ISupabaseRecurringRuleRe
     delete (cleanPatch as Record<string, unknown>).created_at;
     delete (cleanPatch as Record<string, unknown>).type;
     delete (cleanPatch as Record<string, unknown>).start_date;
+
+    if (typeof cleanPatch.account_id === 'string' && this.accountRepo) {
+      const cloudAccount = await this.accountRepo.findById(cleanPatch.account_id);
+      if (
+        !cloudAccount ||
+        cloudAccount.user_id !== userId ||
+        (cloudAccount.deleted_at !== undefined && cloudAccount.deleted_at !== null)
+      ) {
+        throw new SyncAccountDependencyError(
+          `Cannot update recurring rule '${id}': Account '${cleanPatch.account_id}' was not found in cloud or was deleted.`,
+          cleanPatch.account_id
+        );
+      }
+    }
 
     const { data, error } = await this.client
       .from('recurring_rules')

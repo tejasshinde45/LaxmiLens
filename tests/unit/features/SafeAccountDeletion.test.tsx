@@ -653,7 +653,8 @@ describe('Safe Permanent Account Deletion', () => {
 
     expect(rpcMock).toHaveBeenCalledWith('safe_delete_account', {
       p_account_id: ACC_TARGET,
-      p_expected_version: 1
+      p_expected_version: 1,
+      p_deleted_at: expect.any(String)
     });
     expect(await outboxManager.getPendingEntries(USER_1)).toHaveLength(0);
 
