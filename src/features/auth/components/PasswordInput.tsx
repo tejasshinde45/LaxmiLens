@@ -20,15 +20,20 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
         label={label}
         error={error}
         helperText={helperText}
-        prefixIcon={<Lock className="h-4 w-4 text-[#858078]" />}
+        prefixIcon={<Lock className="h-4 w-4 text-[#858078]" aria-hidden="true" />}
         suffixIcon={
           <button
             type="button"
             onClick={() => setShowPassword((prev) => !prev)}
             aria-label={showPassword ? 'Hide password' : 'Show password'}
-            className="flex items-center text-[#858078] hover:text-[#F5F1E8] focus:outline-none focus:text-[#D6AD60] transition-colors cursor-pointer"
+            aria-pressed={showPassword}
+            className="flex items-center rounded-sm p-0.5 text-[#858078] hover:text-[#F5F1E8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D6AD60] focus-visible:text-[#D6AD60] transition-colors cursor-pointer"
           >
-            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            {showPassword ? (
+              <EyeOff className="h-4 w-4" aria-hidden="true" />
+            ) : (
+              <Eye className="h-4 w-4" aria-hidden="true" />
+            )}
           </button>
         }
         {...props}

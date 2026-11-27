@@ -133,10 +133,14 @@ export const AccountFormModal: React.FC<AccountFormModalProps> = ({
 
           {/* Account Type Selector */}
           <div className="space-y-1.5">
-            <label className="block text-xs font-medium text-[#B9B4AA]">
+            <span id="account-type-group-label" className="block text-xs font-medium text-[#B9B4AA]">
               Account Type
-            </label>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            </span>
+            <div
+              role="radiogroup"
+              aria-labelledby="account-type-group-label"
+              className="grid grid-cols-2 sm:grid-cols-3 gap-2"
+            >
               {(Object.keys(ACCOUNT_TYPE_CONFIG) as AccountType[]).map((typeKey) => {
                 const config = ACCOUNT_TYPE_CONFIG[typeKey];
                 const isSelected = selectedType === typeKey;
@@ -145,7 +149,7 @@ export const AccountFormModal: React.FC<AccountFormModalProps> = ({
                   <label
                     key={typeKey}
                     className={cn(
-                      'flex flex-col items-start p-2.5 rounded-[10px] border cursor-pointer select-none transition-all',
+                      'flex flex-col items-start p-2.5 rounded-[10px] border cursor-pointer select-none transition-all focus-within:border-[#D6AD60] focus-within:ring-2 focus-within:ring-[#D6AD60]',
                       isSelected
                         ? 'border-[#D6AD60] bg-[#D6AD60]/10 text-[#F5F1E8]'
                         : 'border-[#303030] bg-[#1B1B1B] text-[#B9B4AA] hover:bg-[#242424]'
@@ -167,7 +171,9 @@ export const AccountFormModal: React.FC<AccountFormModalProps> = ({
               })}
             </div>
             {errors.accountType?.message && (
-              <p className="text-xs text-[#D9827C]">{errors.accountType.message}</p>
+              <p role="alert" className="text-xs text-[#D9827C]">
+                {errors.accountType.message}
+              </p>
             )}
           </div>
 
@@ -205,14 +211,18 @@ export const AccountFormModal: React.FC<AccountFormModalProps> = ({
 
           {/* Color Preset Swatches */}
           <div className="space-y-1.5">
-            <label className="block text-xs font-medium text-[#B9B4AA]">
+            <span id="account-accent-color-label" className="block text-xs font-medium text-[#B9B4AA]">
               Accent Color
-            </label>
+            </span>
             <Controller
               name="color"
               control={control}
               render={({ field }) => (
-                <div className="flex items-center gap-2 flex-wrap">
+                <div
+                  role="group"
+                  aria-labelledby="account-accent-color-label"
+                  className="flex items-center gap-2 flex-wrap"
+                >
                   {PRESET_ACCOUNT_COLORS.map((c) => {
                     const isSelected = field.value === c;
                     return (
@@ -221,14 +231,17 @@ export const AccountFormModal: React.FC<AccountFormModalProps> = ({
                         key={c}
                         onClick={() => field.onChange(c)}
                         disabled={isLoading}
+                        aria-pressed={isSelected}
                         className={cn(
-                          'h-7 w-7 rounded-full flex items-center justify-center transition-transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-[#D6AD60] cursor-pointer',
+                          'h-7 w-7 rounded-full flex items-center justify-center transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D6AD60] cursor-pointer',
                           isSelected && 'ring-2 ring-offset-2 ring-offset-[#1B1B1B] ring-[#D6AD60]'
                         )}
                         style={{ backgroundColor: c }}
                         aria-label={`Select color ${c}`}
                       >
-                        {isSelected && <Check className="h-3.5 w-3.5 text-[#101010] stroke-[3]" />}
+                        {isSelected && (
+                          <Check className="h-3.5 w-3.5 text-[#101010] stroke-[3]" aria-hidden="true" />
+                        )}
                       </button>
                     );
                   })}
@@ -247,13 +260,17 @@ export const AccountFormModal: React.FC<AccountFormModalProps> = ({
               rows={2}
               placeholder="e.g. Primary salary credit account, UPI linked"
               disabled={isLoading}
+              aria-invalid={Boolean(errors.notes)}
+              aria-describedby={errors.notes ? 'account-notes-error' : undefined}
               className={cn(
                 'flex w-full rounded-[10px] border border-[#303030] bg-[#1B1B1B] px-3.5 py-2 text-sm text-[#F5F1E8] placeholder:text-[#858078] transition-colors focus-visible:outline-none focus-visible:border-[#D6AD60] focus-visible:ring-1 focus-visible:ring-[#D6AD60] disabled:cursor-not-allowed disabled:opacity-50 resize-none'
               )}
               {...register('notes')}
             />
             {errors.notes?.message && (
-              <p className="text-xs text-[#D9827C]">{errors.notes.message}</p>
+              <p id="account-notes-error" role="alert" className="text-xs text-[#D9827C]">
+                {errors.notes.message}
+              </p>
             )}
           </div>
 

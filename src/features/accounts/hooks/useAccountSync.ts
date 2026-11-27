@@ -1,16 +1,33 @@
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useContext } from 'react';
+import { useQuery, useMutation, QueryClientContext, type QueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { queryClient as globalQueryClient } from '@/lib/queryClient';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import {
   defaultManualSyncCoordinator,
+  ManualSyncCoordinator,
   UnifiedSyncResult
 } from '@/infrastructure/sync/ManualSyncCoordinator';
 import { defaultDatabaseManager } from '@/infrastructure/database/local/DatabaseManager';
+import { NoActiveDatabaseSessionError } from '@/infrastructure/database/local/errors/DatabaseErrors';
 import { notificationQueryKeys } from '@/features/notifications/hooks/notificationQueryKeys';
 import { triggerAlertEvaluationSafely } from '@/features/notifications/services/financialAlertEvaluator';
+import { OFFLINE_QUERY_STALE_TIME_MS } from '@/features/sync/utils/pendingOutboxQuery';
 
-export function useAccountSync(client = globalQueryClient) {
+async function resolveSyncCoordinator(): Promise<ManualSyncCoordinator> {
+  try {
+    return await defaultDatabaseManager.getActiveSyncCoordinator();
+  } catch (err) {
+    if (!(err instanceof NoActiveDatabaseSessionError)) {
+      throw err;
+    }
+    return defaultManualSyncCoordinator;
+  }
+}
+
+export function useAccountSync(explicitClient?: QueryClient) {
+  const contextClient = useContext(QueryClientContext);
+  const client = explicitClient ?? contextClient ?? globalQueryClient;
   // Safely extract authentication context
   let user: { id: string } | null = null;
   let isAuthenticated = false;
@@ -32,14 +49,11 @@ export function useAccountSync(client = globalQueryClient) {
       queryKey: pendingQueryKey,
       queryFn: async () => {
         if (!user?.id) return 0;
-        try {
-          const coordinator = await defaultDatabaseManager.getActiveSyncCoordinator();
-          return await coordinator.getPendingCount(user.id);
-        } catch {
-          return defaultManualSyncCoordinator.getPendingCount(user.id);
-        }
+        const coordinator = await resolveSyncCoordinator();
+        return await coordinator.getPendingCount(user.id);
       },
       enabled: !!user?.id,
+      staleTime: OFFLINE_QUERY_STALE_TIME_MS,
       // Strictly disable automatic refetch triggers (no periodic timers, no reconnect triggers)
       refetchInterval: false,
       refetchOnWindowFocus: false,
@@ -55,12 +69,8 @@ export function useAccountSync(client = globalQueryClient) {
         if (!user?.id) {
           throw new Error('Please sign in to synchronize with the cloud.');
         }
-        try {
-          const coordinator = await defaultDatabaseManager.getActiveSyncCoordinator();
-          return await coordinator.run();
-        } catch {
-          return await defaultManualSyncCoordinator.run();
-        }
+        const coordinator = await resolveSyncCoordinator();
+        return await coordinator.run();
       },
       onSuccess: (result) => {
         const hasFailures = result.failedCount > 0;
@@ -77,6 +87,7 @@ export function useAccountSync(client = globalQueryClient) {
           client.invalidateQueries({ queryKey: ['pendingOutboxBudgetIds', user?.id] });
           client.invalidateQueries({ queryKey: ['pendingOutboxTxIds', user?.id] });
           client.invalidateQueries({ queryKey: ['pendingOutboxRecurringIds', user?.id] });
+          client.invalidateQueries({ queryKey: ['pendingOutboxEntries', user?.id] });
           client.invalidateQueries({ queryKey: pendingQueryKey });
         }
 

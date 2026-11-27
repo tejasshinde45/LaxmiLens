@@ -28,8 +28,8 @@ export const TOKENS = {
     xl: '22px'
   },
   typography: {
-    primary: 'Manrope, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif',
-    secondary: 'Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif'
+    primary: "'Manrope', 'Manrope Fallback', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, system-ui, sans-serif",
+    secondary: "'Inter', 'Manrope', 'Inter Fallback', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, system-ui, sans-serif"
   },
   breakpoints: {
     mobileSm: '360px',

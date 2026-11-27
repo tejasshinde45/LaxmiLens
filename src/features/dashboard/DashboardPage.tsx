@@ -171,11 +171,15 @@ export const DashboardPage: React.FC = () => {
                 </span>
               )}
             </Button>
-            <Link to="/transactions">
-              <Button variant="primary" size="sm" leftIcon={<Plus className="h-4 w-4" />}>
-                Add Transaction
-              </Button>
-            </Link>
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              leftIcon={<Plus className="h-4 w-4" aria-hidden="true" />}
+              onClick={() => navigate('/transactions')}
+            >
+              Add Transaction
+            </Button>
           </div>
         }
       />
@@ -282,7 +286,10 @@ export const DashboardPage: React.FC = () => {
             <h2 className="text-sm font-bold text-[#F5F1E8] font-display uppercase tracking-wider">
               Recent Transactions
             </h2>
-            <Link to="/transactions" className="text-xs text-[#D6AD60] hover:underline">
+            <Link
+              to="/transactions"
+              className="text-xs text-[#D6AD60] hover:underline rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D6AD60]"
+            >
               View all
             </Link>
           </div>
@@ -333,13 +340,15 @@ export const DashboardPage: React.FC = () => {
                 const amountSign = isIncome ? '+' : isExpense ? '-' : '';
 
                 return (
-                  <div
+                  <button
                     key={tx.id}
+                    type="button"
                     onClick={() => setSelectedDetailTx(tx)}
-                    className="p-3.5 flex items-center justify-between hover:bg-[#202020]/60 transition-colors cursor-pointer"
+                    className="w-full text-left p-3.5 flex items-center justify-between hover:bg-[#202020]/60 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#D6AD60]"
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <div
+                        aria-hidden="true"
                         className={cn(
                           'h-9 w-9 rounded-full flex items-center justify-center shrink-0',
                           isIncome
@@ -350,7 +359,7 @@ export const DashboardPage: React.FC = () => {
                         )}
                       >
                         {isTransfer ? (
-                          <ArrowLeftRight className="h-4 w-4" />
+                          <ArrowLeftRight className="h-4 w-4" aria-hidden="true" />
                         ) : (
                           <CategoryIcon
                             name={category?.icon}
@@ -379,7 +388,7 @@ export const DashboardPage: React.FC = () => {
                           {isTransfer ? (
                             <>
                               <span>{sourceAccount?.name || 'Account'}</span>
-                              <span>→</span>
+                              <span aria-hidden="true">→</span>
                               <span>{destAccount?.name || 'Account'}</span>
                             </>
                           ) : (
@@ -387,11 +396,11 @@ export const DashboardPage: React.FC = () => {
                               <span>
                                 {category?.name || (isIncome ? 'Income' : 'Expense')}
                               </span>
-                              <span>•</span>
+                              <span aria-hidden="true">•</span>
                               <span>{sourceAccount?.name || 'Account'}</span>
                             </>
                           )}
-                          <span>•</span>
+                          <span aria-hidden="true">•</span>
                           <span>{formatDate(tx.transactionDate, 'dd MMM yyyy')}</span>
                         </div>
                       </div>
@@ -403,7 +412,7 @@ export const DashboardPage: React.FC = () => {
                         {tx.amountFormatted}
                       </span>
                     </div>
-                  </div>
+                  </button>
                 );
               })}
             </Card>

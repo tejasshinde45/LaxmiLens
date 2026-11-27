@@ -25,26 +25,34 @@ export default defineConfig({
           {
             src: 'pwa-192x192.png',
             sizes: '192x192',
-            type: 'image/png'
-          },
-          {
-            src: 'pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'any'
           },
           {
             src: 'pwa-512x512.png',
             sizes: '512x512',
             type: 'image/png',
-            purpose: 'any maskable'
+            purpose: 'any'
+          },
+          {
+            src: 'pwa-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable'
           }
         ]
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
-        // Exclude sensitive financial data and cloud API endpoints from service worker caching
-        navigateFallbackDenylist: [/^\/api\//, /^\/auth\//, /https:\/\/.*\.supabase\.co\/.*/]
+        // Exclude sensitive financial data, cloud API endpoints, and static asset extensions from SPA navigation fallback
+        navigateFallbackDenylist: [
+          /^\/api\//,
+          /^\/auth\//,
+          /^\/assets\//,
+          /\/[^/?]+\.(?:ico|png|svg|webp|jpe?g|gif|woff2?|css|js|mjs|json|webmanifest|txt|xml|map)(?:$|\?)/i,
+          /https:\/\/.*\.supabase\.co\/.*/
+        ]
       }
     })
   ],

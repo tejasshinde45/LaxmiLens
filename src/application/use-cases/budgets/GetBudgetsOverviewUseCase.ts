@@ -24,10 +24,31 @@ export class GetBudgetsOverviewUseCase {
   public async execute(userIdStr: string, period: string): Promise<BudgetsOverviewResponseDTO> {
     const userId = validateUserId(userIdStr);
     const { normalizedPeriod } = parseBudgetPeriod(period);
+    const budgets = await this.budgetRepo.findByPeriod(normalizedPeriod, userId);
+
+    if (budgets.length === 0) {
+      const zeroFormatted = formatPaiseToINR(0);
+      return {
+        period: normalizedPeriod,
+        summary: {
+          period: normalizedPeriod,
+          totalBudgetLimitPaise: 0,
+          totalBudgetLimitFormatted: zeroFormatted,
+          totalSpentPaise: 0,
+          totalSpentFormatted: zeroFormatted,
+          totalRemainingPaise: 0,
+          totalRemainingFormatted: zeroFormatted,
+          overallUtilizationPercentage: 0,
+          budgetCount: 0,
+          exceededCount: 0
+        },
+        budgets: []
+      };
+    }
+
     const dateRange = BudgetSpendingService.getMonthDateRange(normalizedPeriod);
 
-    const [budgets, transactions, categories] = await Promise.all([
-      this.budgetRepo.findByPeriod(normalizedPeriod, userId),
+    const [transactions, categories] = await Promise.all([
       this.transactionRepo.findMany({
         userId,
         dateRange,

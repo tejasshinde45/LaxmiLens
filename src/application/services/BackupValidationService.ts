@@ -67,7 +67,8 @@ import {
   BackupOwnershipMismatchError,
   BackupValidationError,
   BackupValidationIssue,
-  UnsupportedBackupVersionError
+  UnsupportedBackupVersionError,
+  formatBackupValidationErrorMessage
 } from '@/domain/errors/BackupErrors';
 import { isValidUuid, validateUserId } from '@/domain/value-objects/Identifiers';
 import { APP_CONFIG } from '@/config/constants';
@@ -644,10 +645,7 @@ export class BackupValidationService {
     this.validatePendingOutbox(data.pendingOutbox, authenticatedUserId, issues);
 
     if (issues.length > 0) {
-      throw new BackupValidationError(
-        `Backup failed validation with ${issues.length} integrity issue(s): ${issues[0]!.message}`,
-        issues
-      );
+      throw new BackupValidationError(formatBackupValidationErrorMessage(issues), issues);
     }
 
     return this.buildRestorePreviewAndCheckModeCompatibility(archive, categoryMap, options);
@@ -1357,7 +1355,10 @@ export class BackupValidationService {
         continue;
       }
 
-      const dueDateValid = record.dueDate === undefined || isValidIsoOrCalendarDate(record.dueDate);
+      const dueDateValid =
+        record.dueDate === undefined ||
+        record.dueDate === null ||
+        isValidIsoOrCalendarDate(record.dueDate);
       if (
         !isSafePositiveInteger(record.amountPaise) ||
         !isValidIsoOrCalendarDate(record.borrowingDate) ||

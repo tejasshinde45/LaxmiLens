@@ -20,13 +20,17 @@ export const NavigationItem: React.FC<NavigationItemProps> = ({
   isCollapsed = false,
   onClick
 }) => {
+  const collapsedAccessibleLabel =
+    badge !== undefined ? `${label} (${badge})` : label;
+
   const content = (
     <NavLink
       to={to}
       onClick={onClick}
+      aria-label={isCollapsed ? collapsedAccessibleLabel : undefined}
       className={({ isActive }) =>
         cn(
-          'group relative flex items-center gap-3 rounded-[10px] text-xs font-medium transition-all duration-150 select-none cursor-pointer',
+          'group relative flex items-center gap-3 rounded-[10px] text-xs font-medium transition-all duration-150 select-none cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D6AD60]',
           isCollapsed ? 'h-10 w-10 justify-center p-0 mx-auto' : 'h-10 px-3 w-full',
           isActive
             ? 'bg-[#D6AD60]/12 text-[#D6AD60] font-semibold border border-[#D6AD60]/25 shadow-sm shadow-[#D6AD60]/5'
@@ -37,6 +41,7 @@ export const NavigationItem: React.FC<NavigationItemProps> = ({
       {({ isActive }) => (
         <>
           <Icon
+            aria-hidden="true"
             className={cn(
               'h-4.5 w-4.5 shrink-0 transition-colors',
               isActive ? 'text-[#D6AD60]' : 'text-[#858078] group-hover:text-[#F5F1E8]'

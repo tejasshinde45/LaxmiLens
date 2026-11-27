@@ -10,6 +10,7 @@ import {
   AddBorrowingFormValues,
   RecordRepaymentFormValues
 } from '../schemas/borrowingSchemas';
+import { OFFLINE_QUERY_STALE_TIME_MS } from '@/features/sync/utils/pendingOutboxQuery';
 
 const emptySummary: BorrowingsSummaryDTO = {
   totalOutstandingPaise: 0,
@@ -49,7 +50,11 @@ export function useBorrowings() {
       const repos = await defaultDatabaseManager.getActiveRepositories();
       return repos.getBorrowingsUseCase.execute(user.id);
     },
-    enabled: !!user?.id
+    enabled: !!user?.id,
+    staleTime: OFFLINE_QUERY_STALE_TIME_MS,
+    refetchInterval: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false
   });
 
   const addBorrowingMutation = useMutation({
@@ -76,7 +81,11 @@ export function useBorrowings() {
       queryClient.invalidateQueries({ queryKey: ['borrowings', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['accounts', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['transactions', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['reports', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['outbox', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['syncPendingCount', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['pendingOutboxTxIds', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['pendingOutboxEntries', user?.id] });
       toast.success(
         `Borrowing of ${data.amountFormatted} from ${data.lenderName} recorded successfully.`
       );
@@ -108,7 +117,11 @@ export function useBorrowings() {
       queryClient.invalidateQueries({ queryKey: ['borrowings', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['accounts', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['transactions', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['reports', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['outbox', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['syncPendingCount', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['pendingOutboxTxIds', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['pendingOutboxEntries', user?.id] });
       toast.success(
         `Repayment of ${data.amountFormatted} to ${data.lenderName} recorded successfully.`
       );

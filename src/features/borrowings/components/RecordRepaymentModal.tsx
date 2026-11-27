@@ -156,15 +156,20 @@ export const RecordRepaymentModal: React.FC<RecordRepaymentModalProps> = ({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4 pt-2">
+        <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4 pt-2" noValidate>
           {/* Select Lender */}
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-[#F5F1E8]">
-              Lender <span className="text-[#D6AD60]">*</span>
+            <label htmlFor="repayment-lender" className="text-xs font-medium text-[#F5F1E8]">
+              Lender <span className="text-[#D6AD60]" aria-hidden="true">*</span>
             </label>
             <select
+              id="repayment-lender"
+              required
+              aria-required="true"
+              aria-invalid={Boolean(errors.lenderId)}
+              aria-describedby={errors.lenderId ? 'repayment-lender-error' : undefined}
               {...register('lenderId')}
-              className="w-full h-10 px-3 rounded-md bg-[#1B1B1B] border border-[#303030] text-[#F5F1E8] text-sm focus:outline-none focus:border-[#D6AD60]"
+              className="w-full h-10 px-3 rounded-md bg-[#1B1B1B] border border-[#303030] text-[#F5F1E8] text-sm focus-visible:outline-none focus-visible:border-[#D6AD60] focus-visible:ring-1 focus-visible:ring-[#D6AD60]"
               disabled={isLoading}
               onChange={(e) => {
                 setValue('lenderId', e.target.value);
@@ -179,19 +184,22 @@ export const RecordRepaymentModal: React.FC<RecordRepaymentModalProps> = ({
               ))}
             </select>
             {errors.lenderId && (
-              <p className="text-xs text-[#D9827C]">{errors.lenderId.message}</p>
+              <p id="repayment-lender-error" role="alert" className="text-xs text-[#D9827C]">
+                {errors.lenderId.message}
+              </p>
             )}
           </div>
 
           {/* If lender has multiple borrowings, show specific borrowing selector */}
           {activeBorrowingsForLender.length > 1 && (
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-[#858078]">
+              <label htmlFor="repayment-borrowing-contract" className="text-xs font-medium text-[#858078]">
                 Specific Borrowing Contract
               </label>
               <select
+                id="repayment-borrowing-contract"
                 {...register('borrowingId')}
-                className="w-full h-10 px-3 rounded-md bg-[#1B1B1B] border border-[#303030] text-[#F5F1E8] text-sm focus:outline-none focus:border-[#D6AD60]"
+                className="w-full h-10 px-3 rounded-md bg-[#1B1B1B] border border-[#303030] text-[#F5F1E8] text-sm focus-visible:outline-none focus-visible:border-[#D6AD60] focus-visible:ring-1 focus-visible:ring-[#D6AD60]"
                 disabled={isLoading}
               >
                 <option value="">Oldest Active ({formatPaiseToINR(maxOutstandingPaise)})</option>
@@ -216,7 +224,7 @@ export const RecordRepaymentModal: React.FC<RecordRepaymentModalProps> = ({
               <button
                 type="button"
                 onClick={handleFillFull}
-                className="px-2.5 py-1 text-xs font-semibold rounded bg-[#D6AD60]/10 text-[#D6AD60] border border-[#D6AD60]/30 hover:bg-[#D6AD60]/20 transition-colors"
+                className="px-2.5 py-1 text-xs font-semibold rounded bg-[#D6AD60]/10 text-[#D6AD60] border border-[#D6AD60]/30 hover:bg-[#D6AD60]/20 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D6AD60] cursor-pointer"
               >
                 Repay Full
               </button>
@@ -225,10 +233,17 @@ export const RecordRepaymentModal: React.FC<RecordRepaymentModalProps> = ({
 
           {/* Repayment Amount */}
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-[#F5F1E8]">
-              Repayment Amount (₹) <span className="text-[#D6AD60]">*</span>
+            <label htmlFor="repayment-amount" className="text-xs font-medium text-[#F5F1E8]">
+              Repayment Amount (₹) <span className="text-[#D6AD60]" aria-hidden="true">*</span>
             </label>
             <Input
+              id="repayment-amount"
+              required
+              aria-required="true"
+              aria-invalid={Boolean(errors.amount) || isAmountOverDebt}
+              aria-describedby={
+                errors.amount || isAmountOverDebt ? 'repayment-amount-error' : undefined
+              }
               {...register('amount')}
               type="number"
               step="0.01"
@@ -237,10 +252,12 @@ export const RecordRepaymentModal: React.FC<RecordRepaymentModalProps> = ({
               disabled={isLoading}
             />
             {errors.amount && (
-              <p className="text-xs text-[#D9827C]">{errors.amount.message}</p>
+              <p id="repayment-amount-error" role="alert" className="text-xs text-[#D9827C]">
+                {errors.amount.message}
+              </p>
             )}
             {isAmountOverDebt && (
-              <p className="text-xs text-[#D9827C] font-medium">
+              <p id="repayment-amount-error" role="alert" className="text-xs text-[#D9827C] font-medium">
                 Repayment exceeds the remaining outstanding balance of{' '}
                 {formatPaiseToINR(maxOutstandingPaise)}.
               </p>
@@ -249,12 +266,19 @@ export const RecordRepaymentModal: React.FC<RecordRepaymentModalProps> = ({
 
           {/* Payment Account */}
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-[#F5F1E8]">
-              Payment Account (Paid From) <span className="text-[#D6AD60]">*</span>
+            <label htmlFor="repayment-payment-account" className="text-xs font-medium text-[#F5F1E8]">
+              Payment Account (Paid From) <span className="text-[#D6AD60]" aria-hidden="true">*</span>
             </label>
             <select
+              id="repayment-payment-account"
+              required
+              aria-required="true"
+              aria-invalid={Boolean(errors.paymentAccountId)}
+              aria-describedby={
+                errors.paymentAccountId ? 'repayment-payment-account-error' : undefined
+              }
               {...register('paymentAccountId')}
-              className="w-full h-10 px-3 rounded-md bg-[#1B1B1B] border border-[#303030] text-[#F5F1E8] text-sm focus:outline-none focus:border-[#D6AD60]"
+              className="w-full h-10 px-3 rounded-md bg-[#1B1B1B] border border-[#303030] text-[#F5F1E8] text-sm focus-visible:outline-none focus-visible:border-[#D6AD60] focus-visible:ring-1 focus-visible:ring-[#D6AD60]"
               disabled={isLoading}
             >
               {eligibleAccounts.map((acc) => (
@@ -264,31 +288,45 @@ export const RecordRepaymentModal: React.FC<RecordRepaymentModalProps> = ({
               ))}
             </select>
             {errors.paymentAccountId && (
-              <p className="text-xs text-[#D9827C]">{errors.paymentAccountId.message}</p>
+              <p
+                id="repayment-payment-account-error"
+                role="alert"
+                className="text-xs text-[#D9827C]"
+              >
+                {errors.paymentAccountId.message}
+              </p>
             )}
           </div>
 
           {/* Repayment Date */}
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-[#F5F1E8]">
-              Repayment Date <span className="text-[#D6AD60]">*</span>
+            <label htmlFor="repayment-date" className="text-xs font-medium text-[#F5F1E8]">
+              Repayment Date <span className="text-[#D6AD60]" aria-hidden="true">*</span>
             </label>
             <Input
+              id="repayment-date"
+              required
+              aria-required="true"
+              aria-invalid={Boolean(errors.repaymentDate)}
+              aria-describedby={errors.repaymentDate ? 'repayment-date-error' : undefined}
               {...register('repaymentDate')}
               type="date"
               disabled={isLoading}
             />
             {errors.repaymentDate && (
-              <p className="text-xs text-[#D9827C]">{errors.repaymentDate.message}</p>
+              <p id="repayment-date-error" role="alert" className="text-xs text-[#D9827C]">
+                {errors.repaymentDate.message}
+              </p>
             )}
           </div>
 
           {/* Optional Note */}
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-[#858078]">
+            <label htmlFor="repayment-notes" className="text-xs font-medium text-[#858078]">
               Note (Optional)
             </label>
             <Input
+              id="repayment-notes"
               {...register('notes')}
               placeholder="e.g. First installment / Bank UPI transfer"
               disabled={isLoading}
@@ -309,6 +347,7 @@ export const RecordRepaymentModal: React.FC<RecordRepaymentModalProps> = ({
               type="submit"
               variant="primary"
               size="sm"
+              isLoading={isLoading}
               disabled={isLoading || isAmountOverDebt || !selectedLenderId}
             >
               {isLoading ? 'Recording...' : 'Record Repayment'}

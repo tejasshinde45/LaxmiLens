@@ -13,7 +13,7 @@ export const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
 
     return (
       <div className="relative flex w-full items-center">
-        <Search className="pointer-events-none absolute left-3.5 h-4 w-4 text-[#858078]" />
+        <Search className="pointer-events-none absolute left-3.5 h-4 w-4 text-[#858078]" aria-hidden="true" />
         <input
           ref={ref}
           type="text"
@@ -30,10 +30,10 @@ export const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
             <button
               type="button"
               onClick={onClear}
-              className="flex h-5 w-5 items-center justify-center rounded-full text-[#858078] hover:bg-[#242424] hover:text-[#F5F1E8]"
+              className="flex h-5 w-5 items-center justify-center rounded-full text-[#858078] hover:bg-[#242424] hover:text-[#F5F1E8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D6AD60] cursor-pointer"
               aria-label="Clear search"
             >
-              <X className="h-3.5 w-3.5" />
+              <X className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
           )}
           {shortcutBadge && !hasValue && (

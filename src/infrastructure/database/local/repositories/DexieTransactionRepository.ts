@@ -1,5 +1,7 @@
+import Dexie from 'dexie';
 import { TransactionRepository, TransactionFilter } from '@/domain/repositories/TransactionRepository';
 import { Transaction, TransactionType } from '@/domain/entities/Transaction';
+import { DateRange } from '@/domain/value-objects/DateRange';
 import {
   TransactionId,
   AccountId,
@@ -17,8 +19,68 @@ import {
 import { db, LaxmiLensDB } from '../DexieDatabase';
 import { LocalTransactionRecord } from '../schema';
 
+interface BetweenWhereClause {
+  between?: (
+    lower: [string, string],
+    upper: [string, string],
+    includeLower?: boolean,
+    includeUpper?: boolean
+  ) => { toArray: () => Promise<LocalTransactionRecord[]> };
+}
+
+function resolveIndexedDateBounds(dateRange: DateRange): { lower: string; upper: string } | null {
+  const startYear = dateRange.startDate.getUTCFullYear();
+  const endYear = dateRange.endDate.getUTCFullYear();
+  if (startYear < 0 || startYear > 9999 || endYear < 0 || endYear > 9999) {
+    return null;
+  }
+  const startIso = dateRange.startDate.toISOString();
+  const endIso = dateRange.endDate.toISOString();
+  // Include legacy date-only 'YYYY-MM-DD' keys when the range lower bound is UTC midnight without scanning the prior day.
+  const lower = startIso.endsWith('T00:00:00.000Z') ? startIso.slice(0, 10) : startIso;
+  return { lower, upper: endIso };
+}
+
+function sortRecordsDescending(records: LocalTransactionRecord[]): LocalTransactionRecord[] {
+  if (records.length <= 1) {
+    return records;
+  }
+  const keyed = records.map((record) => ({
+    record,
+    ts: Date.parse(record.transactionDate || record.date || '')
+  }));
+  keyed.sort((a, b) => b.ts - a.ts);
+  return keyed.map((entry) => entry.record);
+}
+
 export class DexieTransactionRepository implements TransactionRepository {
+  private readonly inFlightRecordReads = new Map<string, Promise<LocalTransactionRecord[]>>();
+
   constructor(private readonly database: LaxmiLensDB = db) {}
+
+  private async loadRawRecordsCoalesced(
+    readKey: string,
+    loader: () => Promise<LocalTransactionRecord[]>
+  ): Promise<LocalTransactionRecord[]> {
+    if (Dexie.currentTransaction) {
+      return loader();
+    }
+
+    const existing = this.inFlightRecordReads.get(readKey);
+    if (existing) {
+      return (await existing).slice();
+    }
+
+    const pending = loader();
+    this.inFlightRecordReads.set(readKey, pending);
+    try {
+      return (await pending).slice();
+    } finally {
+      if (this.inFlightRecordReads.get(readKey) === pending) {
+        this.inFlightRecordReads.delete(readKey);
+      }
+    }
+  }
 
   public async findById(id: TransactionId, userId: UserId): Promise<Transaction | null> {
     const validatedUserId = validateUserId(userId);
@@ -68,38 +130,72 @@ export class DexieTransactionRepository implements TransactionRepository {
     sourceRecords.forEach((r) => map.set(r.id, r));
     userDestRecords.forEach((r) => map.set(r.id, r));
 
-    const records = Array.from(map.values());
-    records.sort((a, b) => {
-      const dateA = new Date(a.transactionDate || a.date || '').getTime();
-      const dateB = new Date(b.transactionDate || b.date || '').getTime();
-      return dateB - dateA;
-    });
+    const records = sortRecordsDescending(Array.from(map.values()));
 
     return records.map((r) => this.toDomain(r));
   }
 
   public async findMany(filter: TransactionFilter): Promise<Transaction[]> {
     const validatedUserId = validateUserId(filter.userId);
+    const bounds = filter.dateRange ? resolveIndexedDateBounds(filter.dateRange) : null;
     let records: LocalTransactionRecord[];
 
     if (filter.accountId) {
-      const sourceRecords = await this.database.transactions
-        .where('[userId+accountId]')
-        .equals([validatedUserId, filter.accountId])
-        .toArray();
+      const accountId = filter.accountId;
+      const accDateClause = bounds
+        ? (this.database.transactions.where('[accountId+transactionDate]') as BetweenWhereClause)
+        : undefined;
+      const useAccountDateRange = Boolean(bounds && typeof accDateClause?.between === 'function');
+      const readKey = useAccountDateRange
+        ? `account-date:${validatedUserId}:${accountId}:${bounds!.lower}:${bounds!.upper}`
+        : `account:${validatedUserId}:${accountId}`;
 
-      const destRecords = await this.database.transactions
-        .where('destinationAccountId')
-        .equals(filter.accountId)
-        .toArray();
-      const userDestRecords = destRecords.filter((r) => r.userId === validatedUserId);
+      records = await this.loadRawRecordsCoalesced(readKey, async () => {
+        const sourceRecords = useAccountDateRange
+          ? (
+              await accDateClause!.between!(
+                [accountId, bounds!.lower],
+                [accountId, bounds!.upper],
+                true,
+                true
+              ).toArray()
+            ).filter((r) => r.userId === validatedUserId)
+          : await this.database.transactions
+              .where('[userId+accountId]')
+              .equals([validatedUserId, accountId])
+              .toArray();
 
-      const map = new Map<string, LocalTransactionRecord>();
-      sourceRecords.forEach((r) => map.set(r.id, r));
-      userDestRecords.forEach((r) => map.set(r.id, r));
-      records = Array.from(map.values());
+        const destRecords = await this.database.transactions
+          .where('destinationAccountId')
+          .equals(accountId)
+          .toArray();
+        const userDestRecords = destRecords.filter((r) => r.userId === validatedUserId);
+
+        const map = new Map<string, LocalTransactionRecord>();
+        sourceRecords.forEach((r) => map.set(r.id, r));
+        userDestRecords.forEach((r) => map.set(r.id, r));
+        return Array.from(map.values());
+      });
     } else {
-      records = await this.database.transactions.where('userId').equals(validatedUserId).toArray();
+      const userDateClause = bounds
+        ? (this.database.transactions.where('[userId+transactionDate]') as BetweenWhereClause)
+        : undefined;
+      const useUserDateRange = Boolean(bounds && typeof userDateClause?.between === 'function');
+      const readKey = useUserDateRange
+        ? `user-date:${validatedUserId}:${bounds!.lower}:${bounds!.upper}`
+        : `user:${validatedUserId}`;
+
+      records = await this.loadRawRecordsCoalesced(readKey, async () => {
+        if (useUserDateRange) {
+          return userDateClause!.between!(
+            [validatedUserId, bounds!.lower],
+            [validatedUserId, bounds!.upper],
+            true,
+            true
+          ).toArray();
+        }
+        return this.database.transactions.where('userId').equals(validatedUserId).toArray();
+      });
     }
 
     // Exclude soft-deleted transactions by default unless explicitly included
@@ -131,12 +227,8 @@ export class DexieTransactionRepository implements TransactionRepository {
       });
     }
 
-    // Sort descending by transactionDate
-    records.sort((a, b) => {
-      const dateA = new Date(a.transactionDate || a.date || '').getTime();
-      const dateB = new Date(b.transactionDate || b.date || '').getTime();
-      return dateB - dateA;
-    });
+    // Sort descending by transactionDate using single-pass timestamp extraction
+    records = sortRecordsDescending(records);
 
     if (filter.offset !== undefined) {
       records = records.slice(filter.offset);
@@ -149,6 +241,7 @@ export class DexieTransactionRepository implements TransactionRepository {
   }
 
   public async save(transaction: Transaction): Promise<void> {
+    this.inFlightRecordReads.clear();
     const validatedUserId = validateUserId(transaction.userId);
     const existing = await this.database.transactions.get(transaction.id);
     if (existing && existing.userId && existing.userId !== validatedUserId) {
@@ -156,9 +249,11 @@ export class DexieTransactionRepository implements TransactionRepository {
     }
     const record = this.toRecord(transaction);
     await this.database.transactions.put(record);
+    this.inFlightRecordReads.clear();
   }
 
   public async saveBatch(transactions: Transaction[]): Promise<void> {
+    this.inFlightRecordReads.clear();
     for (const t of transactions) {
       const validatedUserId = validateUserId(t.userId);
       const existing = await this.database.transactions.get(t.id);
@@ -168,6 +263,7 @@ export class DexieTransactionRepository implements TransactionRepository {
     }
     const records = transactions.map((t) => this.toRecord(t));
     await this.database.transactions.bulkPut(records);
+    this.inFlightRecordReads.clear();
   }
 
   public async softDelete(
@@ -176,6 +272,7 @@ export class DexieTransactionRepository implements TransactionRepository {
     deletedAt: Date = new Date(),
     version?: number
   ): Promise<void> {
+    this.inFlightRecordReads.clear();
     const validatedUserId = validateUserId(userId);
     const existing = await this.database.transactions.get(id);
     if (!existing) {
@@ -191,6 +288,7 @@ export class DexieTransactionRepository implements TransactionRepository {
       version: newVersion,
       updatedAt: new Date().toISOString()
     });
+    this.inFlightRecordReads.clear();
   }
 
   private toDomain(record: LocalTransactionRecord): Transaction {

@@ -18,6 +18,10 @@ import { OutboxManager } from '@/infrastructure/sync/OutboxManager';
 import { DexieUnitOfWork } from '@/infrastructure/database/local/DexieUnitOfWork';
 import { notificationQueryKeys } from './notificationQueryKeys';
 import { triggerAlertEvaluationSafely } from '../services/financialAlertEvaluator';
+import {
+  OFFLINE_QUERY_STALE_TIME_MS,
+  pendingOutboxEntriesQueryKey
+} from '@/features/sync/utils/pendingOutboxQuery';
 
 const fallbackPrefRepo = new DexieNotificationPreferenceRepository(db);
 const fallbackSyncPort = new OutboxManager(db);
@@ -89,7 +93,7 @@ export function useNotificationPreferences(explicitClient?: QueryClient) {
         }
       },
       enabled: !!user?.id,
-      staleTime: 0,
+      staleTime: OFFLINE_QUERY_STALE_TIME_MS,
       refetchInterval: false,
       refetchOnWindowFocus: false,
       refetchOnReconnect: false
@@ -127,6 +131,7 @@ export function useNotificationPreferences(explicitClient?: QueryClient) {
         client.setQueryData(notificationQueryKeys.preferences(saved.userId), saved);
         client.invalidateQueries({ queryKey: notificationQueryKeys.preferences(saved.userId) });
         client.invalidateQueries({ queryKey: ['syncPendingCount', saved.userId] });
+        client.invalidateQueries({ queryKey: pendingOutboxEntriesQueryKey(saved.userId) });
         triggerAlertEvaluationSafely(saved.userId, client);
         toast.success('Notification preferences saved.');
       },

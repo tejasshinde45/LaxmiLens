@@ -1,3 +1,4 @@
+import Dexie from 'dexie';
 import { CategoryRepository } from '@/domain/repositories/CategoryRepository';
 import { Category, DEFAULT_CATEGORY_SEEDS } from '@/domain/entities/Category';
 import {
@@ -15,8 +16,80 @@ import {
 import { db, LaxmiLensDB } from '../DexieDatabase';
 import { LocalCategoryRecord } from '../schema';
 
+const NIL_SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
+
+interface CategoryUserWhereClause {
+  equals?: (val: string) => { toArray: () => Promise<LocalCategoryRecord[]> };
+  anyOf?: (vals: string[]) => { toArray: () => Promise<LocalCategoryRecord[]> };
+}
+
 export class DexieCategoryRepository implements CategoryRepository {
+  private readonly inFlightUserCategoryReads = new Map<string, Promise<LocalCategoryRecord[]>>();
+
   constructor(private readonly database: LaxmiLensDB = db) {}
+
+  private async loadUserCategoriesCoalesced(
+    validatedUserId: string
+  ): Promise<LocalCategoryRecord[]> {
+    const loader = async (): Promise<LocalCategoryRecord[]> => {
+      const userIndex =
+        typeof this.database.categories.where === 'function'
+          ? (this.database.categories.where('userId') as CategoryUserWhereClause)
+          : undefined;
+
+      let candidates: LocalCategoryRecord[];
+      if (typeof userIndex?.anyOf === 'function') {
+        const ownerKeys =
+          validatedUserId === NIL_SYSTEM_USER_ID
+            ? [validatedUserId, '']
+            : [validatedUserId, NIL_SYSTEM_USER_ID, ''];
+        candidates = await userIndex.anyOf(ownerKeys).toArray();
+      } else if (typeof userIndex?.equals === 'function') {
+        const queries: Promise<LocalCategoryRecord[]>[] = [
+          userIndex.equals(validatedUserId).toArray()
+        ];
+        if (validatedUserId !== NIL_SYSTEM_USER_ID) {
+          queries.push(userIndex.equals(NIL_SYSTEM_USER_ID).toArray());
+        }
+        queries.push(userIndex.equals('').toArray());
+        candidates = (await Promise.all(queries)).flat();
+      } else {
+        candidates = await this.database.categories.toArray();
+      }
+
+      const map = new Map<string, LocalCategoryRecord>();
+      for (const c of candidates) {
+        const isDefault = Boolean(c.isDefault ?? c.isSystem);
+        const isOwnedByUser = c.userId === validatedUserId;
+        const isUnassignedDefault =
+          isDefault && (!c.userId || c.userId === NIL_SYSTEM_USER_ID);
+        if (isOwnedByUser || isUnassignedDefault) {
+          map.set(c.id, c);
+        }
+      }
+
+      return Array.from(map.values());
+    };
+
+    if (Dexie.currentTransaction) {
+      return loader();
+    }
+
+    const existing = this.inFlightUserCategoryReads.get(validatedUserId);
+    if (existing) {
+      return (await existing).slice();
+    }
+
+    const pending = loader();
+    this.inFlightUserCategoryReads.set(validatedUserId, pending);
+    try {
+      return (await pending).slice();
+    } finally {
+      if (this.inFlightUserCategoryReads.get(validatedUserId) === pending) {
+        this.inFlightUserCategoryReads.delete(validatedUserId);
+      }
+    }
+  }
 
   public async findById(id: CategoryId, userId: UserId): Promise<Category | null> {
     const validatedUserId = validateUserId(userId);
@@ -38,26 +111,8 @@ export class DexieCategoryRepository implements CategoryRepository {
 
   public async findByUserId(userId: UserId): Promise<Category[]> {
     const validatedUserId = validateUserId(userId);
-    const userRecords = await this.database.categories
-      .where('userId')
-      .equals(validatedUserId)
-      .toArray();
-
-    const defaultRecords = await this.database.categories
-      .filter(
-        (c) =>
-          Boolean(c.isDefault ?? c.isSystem) &&
-          (c.userId === validatedUserId ||
-            !c.userId ||
-            c.userId === '00000000-0000-0000-0000-000000000000')
-      )
-      .toArray();
-
-    const map = new Map<string, LocalCategoryRecord>();
-    userRecords.forEach((c) => map.set(c.id, c));
-    defaultRecords.forEach((c) => map.set(c.id, c));
-
-    return Array.from(map.values()).map((r) => this.toDomain(r));
+    const records = await this.loadUserCategoriesCoalesced(validatedUserId);
+    return records.map((r) => this.toDomain(r));
   }
 
   public async findAll(userId: UserId): Promise<Category[]> {
@@ -65,6 +120,7 @@ export class DexieCategoryRepository implements CategoryRepository {
   }
 
   public async save(category: Category): Promise<void> {
+    this.inFlightUserCategoryReads.clear();
     const validatedUserId = validateUserId(category.userId);
     const existing = await this.database.categories.get(category.id);
     if (existing) {
@@ -78,9 +134,11 @@ export class DexieCategoryRepository implements CategoryRepository {
     }
     const record = this.toRecord(category);
     await this.database.categories.put(record);
+    this.inFlightUserCategoryReads.clear();
   }
 
   public async saveBatch(categories: Category[]): Promise<void> {
+    this.inFlightUserCategoryReads.clear();
     for (const c of categories) {
       const validatedUserId = validateUserId(c.userId);
       const existing = await this.database.categories.get(c.id);
@@ -96,9 +154,11 @@ export class DexieCategoryRepository implements CategoryRepository {
     }
     const records = categories.map((c) => this.toRecord(c));
     await this.database.categories.bulkPut(records);
+    this.inFlightUserCategoryReads.clear();
   }
 
   public async archive(id: CategoryId, userId: UserId): Promise<void> {
+    this.inFlightUserCategoryReads.clear();
     const validatedUserId = validateUserId(userId);
     const existing = await this.database.categories.get(id);
     if (!existing) {
@@ -115,6 +175,7 @@ export class DexieCategoryRepository implements CategoryRepository {
       isArchived: true,
       updatedAt: new Date().toISOString()
     });
+    this.inFlightUserCategoryReads.clear();
   }
 
   public async seedDefaults(userId: UserId): Promise<Category[]> {

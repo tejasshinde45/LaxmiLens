@@ -92,17 +92,17 @@ const CategoryBreakdownSection: React.FC<BreakdownSectionProps> = ({
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
+          <table className="w-full text-left border-collapse text-xs" aria-label={title}>
             <thead>
               <tr className="border-b border-[#303030] text-[#858078]">
-                <th className="py-2 pr-4 font-semibold">Category</th>
-                <th className="py-2 px-3 font-semibold text-right">Txns</th>
-                <th className="py-2 px-3 font-semibold text-right">Amount</th>
-                <th className="py-2 px-3 font-semibold text-right">Share</th>
+                <th scope="col" className="py-2 pr-4 font-semibold">Category</th>
+                <th scope="col" className="py-2 px-3 font-semibold text-right">Txns</th>
+                <th scope="col" className="py-2 px-3 font-semibold text-right">Amount</th>
+                <th scope="col" className="py-2 px-3 font-semibold text-right">Share</th>
                 {comparisonAvailable && (
                   <>
-                    <th className="py-2 px-3 font-semibold text-right">Prior Period</th>
-                    <th className="py-2 pl-3 font-semibold text-right">Change</th>
+                    <th scope="col" className="py-2 px-3 font-semibold text-right">Prior Period</th>
+                    <th scope="col" className="py-2 pl-3 font-semibold text-right">Change</th>
                   </>
                 )}
               </tr>

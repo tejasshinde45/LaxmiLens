@@ -16,6 +16,7 @@ import {
 } from '@/application';
 import { CreateAccountFormValues, EditAccountFormValues } from '../schemas/accountSchemas';
 import { formatPaiseToINR } from '@/utils/formatters';
+import { OFFLINE_QUERY_STALE_TIME_MS } from '@/features/sync/utils/pendingOutboxQuery';
 
 // Fallback singleton infrastructure adapters for static/test contexts
 const fallbackAccountRepo = new DexieAccountRepository();
@@ -82,7 +83,11 @@ export function useAccounts() {
         return fallbackGetAccountsUseCase.execute(user.id, true);
       }
     },
-    enabled: !!user?.id
+    enabled: !!user?.id,
+    staleTime: OFFLINE_QUERY_STALE_TIME_MS,
+    refetchInterval: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false
   });
 
   // Calculate high-level financial summary
@@ -162,6 +167,9 @@ export function useAccounts() {
     onSuccess: (newAccount) => {
       queryClient.invalidateQueries({ queryKey });
       queryClient.invalidateQueries({ queryKey: ['accountSyncPendingCount', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['syncPendingCount', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['pendingOutboxEntries', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['reports', user?.id] });
       toast.success(`Account "${newAccount.name}" created successfully`);
     },
     onError: (err) => {
@@ -194,6 +202,9 @@ export function useAccounts() {
     onSuccess: (updated) => {
       queryClient.invalidateQueries({ queryKey });
       queryClient.invalidateQueries({ queryKey: ['accountSyncPendingCount', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['syncPendingCount', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['pendingOutboxEntries', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['reports', user?.id] });
       toast.success(`Account "${updated.name}" updated successfully`);
     },
     onError: (err) => {
@@ -216,6 +227,9 @@ export function useAccounts() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey });
       queryClient.invalidateQueries({ queryKey: ['accountSyncPendingCount', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['syncPendingCount', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['pendingOutboxEntries', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['reports', user?.id] });
       toast.success('Account archived successfully');
     },
     onError: (err) => {
@@ -238,6 +252,9 @@ export function useAccounts() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey });
       queryClient.invalidateQueries({ queryKey: ['accountSyncPendingCount', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['syncPendingCount', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['pendingOutboxEntries', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['reports', user?.id] });
       toast.success('Account restored successfully');
     },
     onError: (err) => {

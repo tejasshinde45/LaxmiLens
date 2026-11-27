@@ -76,7 +76,7 @@ export const RegisterPage: React.FC = () => {
           Already have an account?{' '}
           <Link
             to="/login"
-            className="text-[#D6AD60] hover:text-[#E2BE7D] font-medium transition-colors ml-1 focus-visible:underline"
+            className="text-[#D6AD60] hover:text-[#E2BE7D] font-medium transition-colors ml-1 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D6AD60]"
           >
             Sign in
           </Link>
@@ -85,8 +85,11 @@ export const RegisterPage: React.FC = () => {
     >
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
         {formError && (
-          <div className="flex items-center gap-2.5 p-3 rounded-[10px] bg-[#D9827C]/10 border border-[#D9827C]/30 text-[#D9827C] text-xs">
-            <AlertCircle className="h-4 w-4 shrink-0" />
+          <div
+            role="alert"
+            className="flex items-center gap-2.5 p-3 rounded-[10px] bg-[#D9827C]/10 border border-[#D9827C]/30 text-[#D9827C] text-xs"
+          >
+            <AlertCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
             <span>{formError}</span>
           </div>
         )}

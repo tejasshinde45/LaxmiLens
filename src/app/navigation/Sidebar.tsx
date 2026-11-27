@@ -70,7 +70,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* BRAND Section */}
         <div className="flex items-center justify-between min-h-[44px]">
           <div className="flex items-center gap-3 overflow-hidden">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-gradient-to-br from-[#D6AD60] to-[#B88E46] font-display font-bold text-[#101010] shadow-sm shadow-[#D6AD60]/20">
+            <div
+              aria-hidden="true"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-gradient-to-br from-[#D6AD60] to-[#B88E46] font-display font-bold text-[#101010] shadow-sm shadow-[#D6AD60]/20"
+            >
               LL
             </div>
             {!isCollapsed && (
@@ -88,73 +91,77 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <IconButton
             onClick={onToggleCollapse}
             aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-expanded={!isCollapsed}
+            aria-controls="primary-sidebar-nav"
             size="sm"
             className="hidden lg:flex text-[#858078] hover:text-[#F5F1E8]"
           >
             {isCollapsed ? (
-              <PanelLeftOpen className="h-4 w-4" />
+              <PanelLeftOpen className="h-4 w-4" aria-hidden="true" />
             ) : (
-              <PanelLeftClose className="h-4 w-4" />
+              <PanelLeftClose className="h-4 w-4" aria-hidden="true" />
             )}
           </IconButton>
         </div>
 
         <Separator />
 
-        {/* MAIN MENU Section */}
-        <div className="space-y-1">
-          {!isCollapsed && (
-            <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-[#858078] mb-1.5 font-display">
-              Main Menu
-            </p>
-          )}
-          {mainMenuItems.map((item) => (
-            <NavigationItem
-              key={item.to}
-              label={item.label}
-              to={item.to}
-              icon={item.icon}
-              isCollapsed={isCollapsed}
-            />
-          ))}
-        </div>
+        <nav id="primary-sidebar-nav" aria-label="Main navigation" className="flex flex-col gap-5">
+          {/* MAIN MENU Section */}
+          <div className="space-y-1">
+            {!isCollapsed && (
+              <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-[#858078] mb-1.5 font-display">
+                Main Menu
+              </p>
+            )}
+            {mainMenuItems.map((item) => (
+              <NavigationItem
+                key={item.to}
+                label={item.label}
+                to={item.to}
+                icon={item.icon}
+                isCollapsed={isCollapsed}
+              />
+            ))}
+          </div>
 
-        {/* MANAGE Section */}
-        <div className="space-y-1">
-          {!isCollapsed && (
-            <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-[#858078] mb-1.5 font-display">
-              Manage
-            </p>
-          )}
-          {manageItems.map((item) => (
-            <NavigationItem
-              key={item.to}
-              label={item.label}
-              to={item.to}
-              icon={item.icon}
-              badge={item.badge}
-              isCollapsed={isCollapsed}
-            />
-          ))}
-        </div>
+          {/* MANAGE Section */}
+          <div className="space-y-1">
+            {!isCollapsed && (
+              <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-[#858078] mb-1.5 font-display">
+                Manage
+              </p>
+            )}
+            {manageItems.map((item) => (
+              <NavigationItem
+                key={item.to}
+                label={item.label}
+                to={item.to}
+                icon={item.icon}
+                badge={item.badge}
+                isCollapsed={isCollapsed}
+              />
+            ))}
+          </div>
 
-        {/* PREFERENCES Section */}
-        <div className="space-y-1">
-          {!isCollapsed && (
-            <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-[#858078] mb-1.5 font-display">
-              Preferences
-            </p>
-          )}
-          {preferenceItems.map((item) => (
-            <NavigationItem
-              key={item.to}
-              label={item.label}
-              to={item.to}
-              icon={item.icon}
-              isCollapsed={isCollapsed}
-            />
-          ))}
-        </div>
+          {/* PREFERENCES Section */}
+          <div className="space-y-1">
+            {!isCollapsed && (
+              <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-[#858078] mb-1.5 font-display">
+                Preferences
+              </p>
+            )}
+            {preferenceItems.map((item) => (
+              <NavigationItem
+                key={item.to}
+                label={item.label}
+                to={item.to}
+                icon={item.icon}
+                isCollapsed={isCollapsed}
+              />
+            ))}
+          </div>
+        </nav>
       </div>
 
       {/* Sidebar Footer: System Status */}
@@ -162,18 +169,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {!isCollapsed ? (
           <div className="rounded-[10px] bg-[#1B1B1B] p-2.5 border border-[#303030] flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-[#72B895] animate-pulse" />
+              <span className="h-2 w-2 rounded-full bg-[#72B895] animate-pulse" aria-hidden="true" />
               <div className="flex flex-col">
                 <span className="text-[11px] font-medium text-[#F5F1E8]">Offline-First</span>
                 <span className="text-[10px] text-[#858078]">Local Store Ready</span>
               </div>
             </div>
-            <Sparkles className="h-3.5 w-3.5 text-[#D6AD60]" />
+            <Sparkles className="h-3.5 w-3.5 text-[#D6AD60]" aria-hidden="true" />
           </div>
         ) : (
           <div className="flex justify-center py-1">
             <span
               className="h-2 w-2 rounded-full bg-[#72B895]"
+              aria-label="Offline-First Local Storage Active"
               title="Offline-First Local Storage Active"
             />
           </div>

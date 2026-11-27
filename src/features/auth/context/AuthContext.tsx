@@ -1,10 +1,12 @@
-import React, { createContext, useEffect, useState, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
+import { QueryClientContext } from '@tanstack/react-query';
 import { AuthPort, AuthUser, SignUpParams } from '@/application/ports/AuthPort';
 import { defaultAuthAdapter } from '@/infrastructure/auth/SupabaseAuthAdapter';
 import { defaultDatabaseManager } from '@/infrastructure/database/local/DatabaseManager';
 import { defaultLegacyMigrator } from '@/infrastructure/database/local/LegacyDatabaseMigrator';
 import { isValidUuid } from '@/domain/value-objects/Identifiers';
 import { queryClient } from '@/lib/queryClient';
+import { resetNotificationEvaluationState } from '@/features/notifications/services/financialAlertEvaluator';
 
 export interface AuthContextType {
   user: AuthUser | null;
@@ -33,7 +35,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [initError, setInitError] = useState<string | null>(null);
+  const contextQueryClient = useContext(QueryClientContext);
+  const activeQueryClient = contextQueryClient ?? queryClient;
   const previousUserIdRef = useRef<string | null>(null);
+  const attemptedUserIdRef = useRef<string | null>(null);
   const transitionGenerationRef = useRef<number>(0);
 
   // Sync state, handle cache invalidation, and serialize session transitions
@@ -41,13 +46,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
     const currentTransition = ++transitionGenerationRef.current;
     const nextId = nextUser?.id ?? null;
     const previousId = previousUserIdRef.current;
+    const lastAttemptedId = attemptedUserIdRef.current;
 
     setIsLoading(true);
 
-    // Clear TanStack in-memory query cache when switching users or signing out
-    if (previousId !== null && previousId !== nextId) {
-      queryClient.clear();
+    // Cancel in-flight queries and clear TanStack in-memory cache + alert session marker on user switch or sign-out
+    if (
+      (previousId !== null && previousId !== nextId) ||
+      (lastAttemptedId !== null && lastAttemptedId !== nextId)
+    ) {
+      void activeQueryClient.cancelQueries();
+      activeQueryClient.clear();
+      resetNotificationEvaluationState();
     }
+    attemptedUserIdRef.current = nextId;
 
     if (nextUser && nextUser.id) {
       if (!isValidUuid(nextUser.id)) {
@@ -88,6 +100,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
         if (transitionGenerationRef.current !== currentTransition) return;
         console.error('Failed to open database or complete legacy migration for user session:', err);
         // Do NOT expose normal authenticated application on DB/migration failure
+        previousUserIdRef.current = null;
+        void activeQueryClient.cancelQueries();
+        activeQueryClient.clear();
         setUser(null);
         setInitError(err instanceof Error ? err.message : String(err));
         setIsLoading(false);
@@ -105,7 +120,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
       setInitError(null);
       setIsLoading(false);
     }
-  }, []);
+  }, [activeQueryClient]);
 
   // Initial session restoration & state listener
   useEffect(() => {

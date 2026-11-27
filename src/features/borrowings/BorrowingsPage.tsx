@@ -167,18 +167,23 @@ export const BorrowingsPage: React.FC = () => {
       {/* Filters and Navigation Tabs */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
         {/* Navigation Tabs */}
-        <div className="flex items-center gap-1.5 bg-[#161616] p-1 rounded-lg border border-[#303030]">
+        <div
+          role="group"
+          aria-label="Borrowings views"
+          className="flex items-center gap-1.5 bg-[#161616] p-1 rounded-lg border border-[#303030]"
+        >
           <button
             type="button"
+            aria-pressed={activeTab === 'lenders'}
             onClick={() => setActiveTab('lenders')}
             className={cn(
-              'px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5',
+              'px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D6AD60]',
               activeTab === 'lenders'
                 ? 'bg-[#1B1B1B] text-[#D6AD60] shadow-sm font-semibold'
                 : 'text-[#858078] hover:text-[#F5F1E8]'
             )}
           >
-            <Users className="h-3.5 w-3.5" />
+            <Users className="h-3.5 w-3.5" aria-hidden="true" />
             <span>Lenders</span>
             <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[#303030] text-[#B9B4AA]">
               {lenders.length}
@@ -187,15 +192,16 @@ export const BorrowingsPage: React.FC = () => {
 
           <button
             type="button"
+            aria-pressed={activeTab === 'borrowings'}
             onClick={() => setActiveTab('borrowings')}
             className={cn(
-              'px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5',
+              'px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D6AD60]',
               activeTab === 'borrowings'
                 ? 'bg-[#1B1B1B] text-[#D6AD60] shadow-sm font-semibold'
                 : 'text-[#858078] hover:text-[#F5F1E8]'
             )}
           >
-            <ArrowDownLeft className="h-3.5 w-3.5" />
+            <ArrowDownLeft className="h-3.5 w-3.5" aria-hidden="true" />
             <span>Borrowing History</span>
             <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[#303030] text-[#B9B4AA]">
               {borrowings.length}
@@ -204,15 +210,16 @@ export const BorrowingsPage: React.FC = () => {
 
           <button
             type="button"
+            aria-pressed={activeTab === 'repayments'}
             onClick={() => setActiveTab('repayments')}
             className={cn(
-              'px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5',
+              'px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D6AD60]',
               activeTab === 'repayments'
                 ? 'bg-[#1B1B1B] text-[#D6AD60] shadow-sm font-semibold'
                 : 'text-[#858078] hover:text-[#F5F1E8]'
             )}
           >
-            <ArrowUpRight className="h-3.5 w-3.5" />
+            <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
             <span>Repayment History</span>
             <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[#303030] text-[#B9B4AA]">
               {repayments.length}
@@ -222,8 +229,13 @@ export const BorrowingsPage: React.FC = () => {
 
         {/* Search Input */}
         <div className="relative w-full sm:w-64">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#858078]" />
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#858078] z-10"
+            aria-hidden="true"
+          />
           <Input
+            id="borrowings-search-input"
+            aria-label="Search lenders or borrowings"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search lenders..."

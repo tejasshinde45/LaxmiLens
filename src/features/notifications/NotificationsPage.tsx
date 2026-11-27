@@ -218,7 +218,7 @@ export const NotificationsPage: React.FC = () => {
             aria-selected={statusTab === 'all'}
             onClick={() => setStatusTab('all')}
             className={cn(
-              'rounded-[7px] px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer',
+              'rounded-[7px] px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D6AD60]',
               statusTab === 'all'
                 ? 'bg-[#D6AD60]/15 text-[#D6AD60] font-semibold'
                 : 'text-[#B9B4AA] hover:text-[#F5F1E8]'
@@ -232,7 +232,7 @@ export const NotificationsPage: React.FC = () => {
             aria-selected={statusTab === 'unread'}
             onClick={() => setStatusTab('unread')}
             className={cn(
-              'rounded-[7px] px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer',
+              'rounded-[7px] px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D6AD60]',
               statusTab === 'unread'
                 ? 'bg-[#D6AD60]/15 text-[#D6AD60] font-semibold'
                 : 'text-[#B9B4AA] hover:text-[#F5F1E8]'
@@ -246,7 +246,7 @@ export const NotificationsPage: React.FC = () => {
             aria-selected={statusTab === 'history'}
             onClick={() => setStatusTab('history')}
             className={cn(
-              'rounded-[7px] px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer',
+              'rounded-[7px] px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D6AD60]',
               statusTab === 'history'
                 ? 'bg-[#D6AD60]/15 text-[#D6AD60] font-semibold'
                 : 'text-[#B9B4AA] hover:text-[#F5F1E8]'
@@ -273,9 +273,10 @@ export const NotificationsPage: React.FC = () => {
             <button
               key={option.value}
               type="button"
+              aria-pressed={categoryFilter === option.value}
               onClick={() => setCategoryFilter(option.value)}
               className={cn(
-                'rounded-full border px-3 py-1 text-xs font-medium transition-colors cursor-pointer',
+                'rounded-full border px-3 py-1 text-xs font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D6AD60]',
                 categoryFilter === option.value
                   ? 'border-[#D6AD60]/50 bg-[#D6AD60]/15 text-[#D6AD60]'
                   : 'border-[#303030] bg-[#1B1B1B] text-[#B9B4AA] hover:border-[#454545] hover:text-[#F5F1E8]'
@@ -378,6 +379,7 @@ export const NotificationsPage: React.FC = () => {
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="flex items-start gap-3 min-w-0">
                     <div
+                      aria-hidden="true"
                       className={cn(
                         'mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border',
                         item.severity === 'critical'
@@ -387,7 +389,7 @@ export const NotificationsPage: React.FC = () => {
                           : 'border-[#82A9CF]/30 bg-[#82A9CF]/15 text-[#82A9CF]'
                       )}
                     >
-                      <CategoryIcon className="h-4 w-4" />
+                      <CategoryIcon className="h-4 w-4" aria-hidden="true" />
                     </div>
 
                     <div className="min-w-0 space-y-1.5">
@@ -395,7 +397,7 @@ export const NotificationsPage: React.FC = () => {
                         {isUnread && (
                           <span
                             className="h-2 w-2 rounded-full bg-[#D6AD60] shrink-0"
-                            aria-label="Unread indicator"
+                            aria-hidden="true"
                           />
                         )}
                         <h3

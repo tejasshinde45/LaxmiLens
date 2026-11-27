@@ -117,48 +117,72 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
     <div className="space-y-4">
       {/* Desktop Ledger Table (md and up) */}
       <div className="hidden md:block overflow-hidden rounded-[12px] border border-[#2B2B2B] bg-[#141414]">
-        <table className="w-full text-left text-xs text-[#B9B4AA]">
+        <table className="w-full text-left text-xs text-[#B9B4AA]" aria-label="Transactions ledger">
           <thead className="border-b border-[#2B2B2B] bg-[#181818] text-[11px] font-medium uppercase tracking-wider text-[#858078]">
             <tr>
               <th
-                className={cn(
-                  'py-3 px-4 select-none',
-                  onSortChange && 'cursor-pointer hover:text-[#F5F1E8] transition-colors'
-                )}
-                onClick={() => onSortChange?.('date')}
+                scope="col"
+                aria-sort={
+                  sortBy === 'date'
+                    ? sortDirection === 'asc'
+                      ? 'ascending'
+                      : 'descending'
+                    : 'none'
+                }
+                className="py-3 px-4 select-none"
               >
-                <div className="flex items-center gap-1">
+                {onSortChange ? (
+                  <button
+                    type="button"
+                    onClick={() => onSortChange('date')}
+                    className="inline-flex items-center gap-1 uppercase tracking-wider font-medium hover:text-[#F5F1E8] transition-colors cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D6AD60]"
+                  >
+                    <span>Date</span>
+                    {sortBy === 'date' &&
+                      (sortDirection === 'asc' ? (
+                        <ArrowUp className="h-3 w-3 text-[#D6AD60]" aria-hidden="true" />
+                      ) : (
+                        <ArrowDown className="h-3 w-3 text-[#D6AD60]" aria-hidden="true" />
+                      ))}
+                  </button>
+                ) : (
                   <span>Date</span>
-                  {sortBy === 'date' &&
-                    (sortDirection === 'asc' ? (
-                      <ArrowUp className="h-3 w-3 text-[#D6AD60]" />
-                    ) : (
-                      <ArrowDown className="h-3 w-3 text-[#D6AD60]" />
-                    ))}
-                </div>
-              </th>
-              <th className="py-3 px-4">Title / Note</th>
-              <th className="py-3 px-4">Category / Flow</th>
-              <th className="py-3 px-4">Account</th>
-              <th className="py-3 px-4">Sync</th>
-              <th
-                className={cn(
-                  'py-3 px-4 text-right select-none',
-                  onSortChange && 'cursor-pointer hover:text-[#F5F1E8] transition-colors'
                 )}
-                onClick={() => onSortChange?.('amount')}
-              >
-                <div className="flex items-center justify-end gap-1">
-                  <span>Amount</span>
-                  {sortBy === 'amount' &&
-                    (sortDirection === 'asc' ? (
-                      <ArrowUp className="h-3 w-3 text-[#D6AD60]" />
-                    ) : (
-                      <ArrowDown className="h-3 w-3 text-[#D6AD60]" />
-                    ))}
-                </div>
               </th>
-              <th className="py-3 px-4 text-right w-12">Actions</th>
+              <th scope="col" className="py-3 px-4">Title / Note</th>
+              <th scope="col" className="py-3 px-4">Category / Flow</th>
+              <th scope="col" className="py-3 px-4">Account</th>
+              <th scope="col" className="py-3 px-4">Sync</th>
+              <th
+                scope="col"
+                aria-sort={
+                  sortBy === 'amount'
+                    ? sortDirection === 'asc'
+                      ? 'ascending'
+                      : 'descending'
+                    : 'none'
+                }
+                className="py-3 px-4 text-right select-none"
+              >
+                {onSortChange ? (
+                  <button
+                    type="button"
+                    onClick={() => onSortChange('amount')}
+                    className="inline-flex items-center justify-end gap-1 uppercase tracking-wider font-medium hover:text-[#F5F1E8] transition-colors cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D6AD60]"
+                  >
+                    <span>Amount</span>
+                    {sortBy === 'amount' &&
+                      (sortDirection === 'asc' ? (
+                        <ArrowUp className="h-3 w-3 text-[#D6AD60]" aria-hidden="true" />
+                      ) : (
+                        <ArrowDown className="h-3 w-3 text-[#D6AD60]" aria-hidden="true" />
+                      ))}
+                  </button>
+                ) : (
+                  <span>Amount</span>
+                )}
+              </th>
+              <th scope="col" className="py-3 px-4 text-right w-12">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#222222]">
@@ -196,12 +220,19 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
                   {/* Title & Note Snippet */}
                   <td className="py-3.5 px-4">
                     <div className="flex items-center gap-2">
-                      <span className="font-medium text-[#F5F1E8] group-hover:text-[#D6AD60] transition-colors">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onViewDetails(tx);
+                        }}
+                        className="text-left font-medium text-[#F5F1E8] group-hover:text-[#D6AD60] hover:text-[#D6AD60] transition-colors cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D6AD60]"
+                      >
                         {tx.title || 'Untitled Transaction'}
-                      </span>
+                      </button>
                       {tx.note && (
                         <span title={tx.note}>
-                          <FileText className="h-3 w-3 text-[#858078] shrink-0" />
+                          <FileText className="h-3 w-3 text-[#858078] shrink-0" aria-hidden="true" />
                         </span>
                       )}
                     </div>
@@ -271,9 +302,10 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
                         <Button
                           variant="ghost"
                           size="sm"
+                          aria-label={`Actions for ${tx.title || 'transaction'}`}
                           className="h-7 w-7 p-0 text-[#858078] hover:text-[#F5F1E8]"
                         >
-                          <MoreVertical className="h-4 w-4" />
+                          <MoreVertical className="h-4 w-4" aria-hidden="true" />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-36">
@@ -356,7 +388,16 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
               <div className="flex items-start justify-between gap-2">
                 <div className="space-y-0.5">
                   <h4 className="font-medium text-sm text-[#F5F1E8] leading-tight">
-                    {tx.title || 'Untitled Transaction'}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onViewDetails(tx);
+                      }}
+                      className="text-left hover:text-[#D6AD60] transition-colors cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D6AD60]"
+                    >
+                      {tx.title || 'Untitled Transaction'}
+                    </button>
                   </h4>
                   {tx.note && (
                     <p className="text-xs text-[#858078] line-clamp-1">{tx.note}</p>
@@ -393,18 +434,20 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
                   <Button
                     variant="ghost"
                     size="sm"
+                    aria-label={`Edit ${tx.title || 'transaction'}`}
                     onClick={() => onEdit(tx)}
                     className="h-7 w-7 p-0 text-[#858078] hover:text-[#D6AD60]"
                   >
-                    <Edit2 className="h-3.5 w-3.5" />
+                    <Edit2 className="h-3.5 w-3.5" aria-hidden="true" />
                   </Button>
                   <Button
                     variant="ghost"
                     size="sm"
+                    aria-label={`Delete ${tx.title || 'transaction'}`}
                     onClick={() => onDelete(tx)}
                     className="h-7 w-7 p-0 text-[#858078] hover:text-[#D9827C]"
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
+                    <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                   </Button>
                 </div>
               </div>

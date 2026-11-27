@@ -1,4 +1,5 @@
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useContext } from 'react';
+import { useQuery, useMutation, QueryClientContext, type QueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { queryClient as globalQueryClient } from '@/lib/queryClient';
 import { useAuth } from '@/features/auth/hooks/useAuth';
@@ -35,6 +36,11 @@ import {
 import { createUserId } from '@/domain/value-objects/Identifiers';
 import { getLocalTodayDateString } from '@/domain/services/RecurrenceScheduleService';
 import { triggerAlertEvaluationSafely } from '@/features/notifications/services/financialAlertEvaluator';
+import {
+  fetchSharedPendingOutboxEntries,
+  OFFLINE_QUERY_STALE_TIME_MS,
+  pendingOutboxEntriesQueryKey
+} from '@/features/sync/utils/pendingOutboxQuery';
 import {
   RecurringRuleFormValues,
   parseRecurringAmountToPaise
@@ -152,8 +158,10 @@ function createEmptyRecurringOverview(asOfDate: string): RecurringOverviewRespon
 
 export function useRecurring(
   asOfDate: string = getLocalTodayDateString(),
-  client = globalQueryClient
+  explicitClient?: QueryClient
 ) {
+  const contextClient = useContext(QueryClientContext);
+  const client = explicitClient ?? contextClient ?? globalQueryClient;
   let user: { id: string } | null = null;
   let isAuthenticated = false;
   try {
@@ -189,7 +197,7 @@ export function useRecurring(
         }
       },
       enabled: !!user?.id,
-      staleTime: 0,
+      staleTime: OFFLINE_QUERY_STALE_TIME_MS,
       refetchInterval: false,
       refetchOnWindowFocus: false,
       refetchOnReconnect: false
@@ -202,22 +210,18 @@ export function useRecurring(
       queryKey: pendingOutboxKey,
       queryFn: async () => {
         if (!user?.id) return [];
-        try {
-          const repos = await defaultDatabaseManager.getActiveRepositories();
-          const entries = await repos.outboxManager.getPendingEntries(user.id, 150);
-          return entries
-            .filter((e) => e.entity === 'recurring_rules' || e.entity === 'recurring_occurrences')
-            .map((e) => e.entityId);
-        } catch (activeErr) {
-          if (!(activeErr instanceof NoActiveDatabaseSessionError)) throw activeErr;
-          const entries = await fallbackSyncPort.getPendingEntries(user.id, 150);
-          return entries
-            .filter((e) => e.entity === 'recurring_rules' || e.entity === 'recurring_occurrences')
-            .map((e) => e.entityId);
-        }
+        const entries = await fetchSharedPendingOutboxEntries(
+          user.id,
+          client,
+          fallbackSyncPort,
+          150
+        );
+        return entries
+          .filter((e) => e.entity === 'recurring_rules' || e.entity === 'recurring_occurrences')
+          .map((e) => e.entityId);
       },
       enabled: !!user?.id,
-      staleTime: 0,
+      staleTime: OFFLINE_QUERY_STALE_TIME_MS,
       refetchInterval: false,
       refetchOnWindowFocus: false,
       refetchOnReconnect: false
@@ -231,10 +235,12 @@ export function useRecurring(
     client.invalidateQueries({ queryKey: ['recurring', user?.id] });
     client.invalidateQueries({ queryKey: pendingOutboxKey });
     client.invalidateQueries({ queryKey: ['syncPendingCount', user?.id] });
+    client.invalidateQueries({ queryKey: pendingOutboxEntriesQueryKey(user?.id) });
     if (includeLedger) {
       client.invalidateQueries({ queryKey: ['transactions', user?.id] });
       client.invalidateQueries({ queryKey: ['accounts', user?.id] });
       client.invalidateQueries({ queryKey: ['budgets', user?.id] });
+      client.invalidateQueries({ queryKey: ['reports', user?.id] });
       client.invalidateQueries({ queryKey: ['pendingOutboxTxIds', user?.id] });
     }
     if (user?.id) {

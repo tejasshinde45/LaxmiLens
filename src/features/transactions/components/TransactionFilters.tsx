@@ -72,6 +72,7 @@ export const TransactionFilters: React.FC<TransactionFiltersProps> = ({
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
         <div className="w-full sm:max-w-xs">
           <SearchInput
+            aria-label="Search transactions by title or note"
             placeholder="Search by title or note..."
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
@@ -79,7 +80,11 @@ export const TransactionFilters: React.FC<TransactionFiltersProps> = ({
           />
         </div>
 
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+        <div
+          role="tablist"
+          aria-label="Filter transactions by type"
+          className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none"
+        >
           {[
             { id: 'all', label: 'All' },
             { id: 'expense', label: 'Expenses' },
@@ -95,7 +100,7 @@ export const TransactionFilters: React.FC<TransactionFiltersProps> = ({
                 aria-selected={isActive}
                 onClick={() => onTypeFilterChange(tab.id as TransactionFilterType)}
                 className={cn(
-                  'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] text-xs font-medium whitespace-nowrap transition-colors duration-150 cursor-pointer',
+                  'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] text-xs font-medium whitespace-nowrap transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D6AD60]',
                   isActive
                     ? 'bg-[#D6AD60] text-[#101010] font-semibold shadow-sm'
                     : 'bg-[#1B1B1B] text-[#B9B4AA] hover:bg-[#242424] hover:text-[#F5F1E8] border border-[#303030]'
@@ -113,9 +118,10 @@ export const TransactionFilters: React.FC<TransactionFiltersProps> = ({
         {/* Account Filter Dropdown */}
         <div className="flex items-center gap-1.5">
           <select
+            aria-label="Filter by account"
             value={selectedAccountId}
             onChange={(e) => onAccountChange(e.target.value)}
-            className="h-8 rounded-[8px] border border-[#303030] bg-[#181818] px-2.5 text-xs text-[#F5F1E8] focus:border-[#D6AD60] focus:outline-none transition-colors"
+            className="h-8 rounded-[8px] border border-[#303030] bg-[#181818] px-2.5 text-xs text-[#F5F1E8] focus-visible:border-[#D6AD60] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#D6AD60] transition-colors"
           >
             <option value="all">All Accounts</option>
             {accounts.map((acc) => (
@@ -130,9 +136,10 @@ export const TransactionFilters: React.FC<TransactionFiltersProps> = ({
         {typeFilter !== 'transfer' && (
           <div className="flex items-center gap-1.5">
             <select
+              aria-label="Filter by category"
               value={selectedCategoryId}
               onChange={(e) => onCategoryChange(e.target.value)}
-              className="h-8 rounded-[8px] border border-[#303030] bg-[#181818] px-2.5 text-xs text-[#F5F1E8] focus:border-[#D6AD60] focus:outline-none transition-colors"
+              className="h-8 rounded-[8px] border border-[#303030] bg-[#181818] px-2.5 text-xs text-[#F5F1E8] focus-visible:border-[#D6AD60] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#D6AD60] transition-colors"
             >
               <option value="all">All Categories</option>
               {visibleCategories.map((cat) => (
@@ -147,9 +154,10 @@ export const TransactionFilters: React.FC<TransactionFiltersProps> = ({
         {/* Date Filter Dropdown */}
         <div className="flex items-center gap-1.5">
           <select
+            aria-label="Filter by date range"
             value={dateFilter}
             onChange={(e) => onDateFilterChange(e.target.value as DateFilterPreset)}
-            className="h-8 rounded-[8px] border border-[#303030] bg-[#181818] px-2.5 text-xs text-[#F5F1E8] focus:border-[#D6AD60] focus:outline-none transition-colors"
+            className="h-8 rounded-[8px] border border-[#303030] bg-[#181818] px-2.5 text-xs text-[#F5F1E8] focus-visible:border-[#D6AD60] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#D6AD60] transition-colors"
           >
             <option value="all">All Time</option>
             <option value="this_month">This Month</option>
@@ -161,9 +169,10 @@ export const TransactionFilters: React.FC<TransactionFiltersProps> = ({
         {/* Sort By Dropdown */}
         <div className="flex items-center gap-1.5">
           <select
+            aria-label="Sort transactions by"
             value={sortBy}
             onChange={(e) => onSortByChange?.(e.target.value as SortField)}
-            className="h-8 rounded-[8px] border border-[#303030] bg-[#181818] px-2.5 text-xs text-[#F5F1E8] focus:border-[#D6AD60] focus:outline-none transition-colors"
+            className="h-8 rounded-[8px] border border-[#303030] bg-[#181818] px-2.5 text-xs text-[#F5F1E8] focus-visible:border-[#D6AD60] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#D6AD60] transition-colors"
           >
             <option value="date">Sort by Date</option>
             <option value="amount">Sort by Amount</option>

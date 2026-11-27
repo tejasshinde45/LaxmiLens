@@ -43,8 +43,8 @@ export const DialogContent = forwardRef<
     >
       {children}
       {!hideCloseButton && (
-        <DialogPrimitive.Close className="absolute right-4 top-4 rounded-full p-1 text-[#858078] transition-colors hover:bg-[#242424] hover:text-[#F5F1E8] focus:outline-none focus:ring-2 focus:ring-[#D6AD60] cursor-pointer">
-          <X className="h-4 w-4" />
+        <DialogPrimitive.Close className="absolute right-4 top-4 rounded-full p-1 text-[#858078] transition-colors hover:bg-[#242424] hover:text-[#F5F1E8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D6AD60] cursor-pointer">
+          <X className="h-4 w-4" aria-hidden="true" />
           <span className="sr-only">Close</span>
         </DialogPrimitive.Close>
       )}

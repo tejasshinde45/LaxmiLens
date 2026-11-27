@@ -728,4 +728,115 @@ describe('Phase 11 Stage 3: Settings Data Backup & Restore UI', () => {
       expect((screen.getByLabelText('Backup Passphrase') as HTMLInputElement).value).toBe('');
     });
   });
+
+  it('displays up to five validation issues and total count when restore validation reports multiple integrity errors', async () => {
+    const db = new UiMockDb();
+    await seedSourceData(db, USER_A);
+    const accBorrowId = '22222222-2222-4222-8222-222222222202';
+    const txBorrowId = '44444444-4444-4444-8444-444444444402';
+    const lenderId = '88888888-8888-4888-8888-888888888801';
+    const borrowId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1';
+    const repayIds = [
+      'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb01',
+      'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb02',
+      'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb03',
+      'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb04',
+      'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb05'
+    ];
+
+    await db.accounts.put({
+      id: accBorrowId,
+      userId: USER_A,
+      name: 'Personal Borrowings',
+      accountType: 'other',
+      openingBalancePaise: 0,
+      currency: 'INR',
+      systemTag: 'personal_borrowings',
+      isArchived: false,
+      version: 1,
+      createdAt: '2026-10-01T00:00:00.000Z',
+      updatedAt: '2026-10-01T00:00:00.000Z'
+    });
+    await db.transactions.put({
+      id: txBorrowId,
+      userId: USER_A,
+      type: 'transfer',
+      amountPaise: 50000,
+      currency: 'INR',
+      accountId: accBorrowId,
+      destinationAccountId: ACC_BANK,
+      title: 'Loan Receipt',
+      transactionDate: '2026-11-10T09:00:00.000Z',
+      deletedAt: null,
+      version: 1,
+      idempotencyKey: 'ui-bor-tx-1',
+      createdAt: '2026-11-10T09:00:00.000Z',
+      updatedAt: '2026-11-10T09:00:00.000Z'
+    });
+    await db.lenders.put({
+      id: lenderId,
+      userId: USER_A,
+      name: 'Rahul',
+      isArchived: false,
+      createdAt: '2026-11-10T09:00:00.000Z',
+      updatedAt: '2026-11-10T09:00:00.000Z'
+    });
+    await db.borrowings.put({
+      id: borrowId,
+      userId: USER_A,
+      lenderId,
+      amountPaise: 50000,
+      borrowingDate: '2026-11-10T09:00:00.000Z',
+      dueDate: 'not-a-valid-date',
+      receivingAccountId: ACC_BANK,
+      transactionId: txBorrowId,
+      status: 'active',
+      createdAt: '2026-11-10T09:00:00.000Z',
+      updatedAt: '2026-11-10T09:00:00.000Z'
+    });
+    for (const repayId of repayIds) {
+      await db.borrowingRepayments.put({
+        id: repayId,
+        userId: USER_A,
+        borrowingId: borrowId,
+        lenderId,
+        amountPaise: 10000,
+        repaymentDate: '2026-11-11T09:00:00.000Z',
+        paymentAccountId: ACC_BANK,
+        transactionId: TX_1,
+        createdAt: '2026-11-11T09:00:00.000Z',
+        updatedAt: '2026-11-11T09:00:00.000Z'
+      });
+    }
+
+    const wired = buildWiredBackupRepos(db, activeUserRef);
+    const exported = await wired.repos.exportEncryptedBackupUseCase.execute({
+      passphrase: PASSPHRASE,
+      downloadFile: false
+    });
+    vi.spyOn(defaultDatabaseManager, 'getActiveRepositories').mockResolvedValue(wired.repos);
+
+    renderSettings(queryClient);
+
+    const fileInput = screen.getByLabelText(/Encrypted Backup File/i) as HTMLInputElement;
+    const file = new File([JSON.stringify(exported.envelope)], 'bad-due-date.laxmibak', {
+      type: 'application/json'
+    });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+    fireEvent.change(screen.getByLabelText('Backup Passphrase'), {
+      target: { value: PASSPHRASE }
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Decrypt & Preview/i }));
+
+    await waitFor(() => {
+      const alertEl = screen.getByRole('alert');
+      expect(alertEl).toHaveTextContent(/Backup failed validation with 6 integrity issue\(s\):/i);
+      expect(alertEl).toHaveTextContent(/\[1\] \[borrowings\/INVALID_BORROWING_RECORD\]/);
+      expect(alertEl).toHaveTextContent(
+        /\[5\] \[borrowingRepayments\/MISSING_REPAYMENT_BORROWING\]/
+      );
+      expect(alertEl).toHaveTextContent(/\(\+1 more\)/);
+      expect(alertEl).not.toHaveTextContent(/\[6\]/);
+    });
+  });
 });

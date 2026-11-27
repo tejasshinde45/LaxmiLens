@@ -189,9 +189,13 @@ export const RecurringRuleFormModal: React.FC<RecurringRuleFormModalProps> = ({
               </label>
               <select
                 id="recurring-account-select"
+                required
+                aria-required="true"
+                aria-invalid={Boolean(errors.accountId)}
+                aria-describedby={errors.accountId ? 'recurring-account-error' : undefined}
                 disabled={isBusy}
                 {...register('accountId')}
-                className="h-10 w-full rounded-[10px] border border-[#303030] bg-[#161616] px-3 text-sm text-[#F5F1E8] focus-visible:outline-none focus-visible:border-[#D6AD60]"
+                className="h-10 w-full rounded-[10px] border border-[#303030] bg-[#161616] px-3 text-sm text-[#F5F1E8] focus-visible:outline-none focus-visible:border-[#D6AD60] focus-visible:ring-1 focus-visible:ring-[#D6AD60]"
               >
                 <option value="">Select account...</option>
                 {activeAccounts.map((acc) => (
@@ -201,7 +205,9 @@ export const RecurringRuleFormModal: React.FC<RecurringRuleFormModalProps> = ({
                 ))}
               </select>
               {errors.accountId?.message && (
-                <p className="text-[11px] text-[#D9827C]">{errors.accountId.message}</p>
+                <p id="recurring-account-error" role="alert" className="text-[11px] text-[#D9827C]">
+                  {errors.accountId.message}
+                </p>
               )}
             </div>
           </div>

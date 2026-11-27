@@ -15,15 +15,21 @@ export const AuthCard: React.FC<AuthCardProps> = ({
   footer
 }) => {
   return (
-    <div className="min-h-screen w-full flex flex-col items-center justify-center bg-[#101010] text-[#F5F1E8] px-4 py-8 relative overflow-hidden">
+    <main className="min-h-screen w-full flex flex-col items-center justify-center bg-[#101010] text-[#F5F1E8] px-4 py-8 relative overflow-hidden">
       {/* Subtle ambient gold background gradient */}
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-[#D6AD60]/5 rounded-full blur-3xl pointer-events-none" />
+      <div
+        aria-hidden="true"
+        className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-[#D6AD60]/5 rounded-full blur-3xl pointer-events-none"
+      />
 
       <div className="w-full max-w-md space-y-6 relative z-10">
         {/* Brand Header */}
         <div className="flex flex-col items-center text-center space-y-2">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-gradient-to-br from-[#D6AD60] to-[#B88E46] text-sm font-bold text-[#101010] shadow-md shadow-[#D6AD60]/20 font-display">
+            <div
+              aria-hidden="true"
+              className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-gradient-to-br from-[#D6AD60] to-[#B88E46] text-sm font-bold text-[#101010] shadow-md shadow-[#D6AD60]/20 font-display"
+            >
               LL
             </div>
             <span className="text-xl font-bold tracking-tight text-[#F5F1E8] font-display">
@@ -38,9 +44,9 @@ export const AuthCard: React.FC<AuthCardProps> = ({
         {/* Main Content Card */}
         <Card className="border-[#303030] bg-[#1B1B1B] p-6 sm:p-8 shadow-xl shadow-black/50">
           <div className="space-y-1.5 mb-6 text-center">
-            <h2 className="text-lg font-semibold tracking-tight text-[#F5F1E8] font-display">
+            <h1 className="text-lg font-semibold tracking-tight text-[#F5F1E8] font-display">
               {title}
-            </h2>
+            </h1>
             {subtitle && (
               <p className="text-xs text-[#B9B4AA] leading-relaxed">
                 {subtitle}
@@ -57,6 +63,6 @@ export const AuthCard: React.FC<AuthCardProps> = ({
           )}
         </Card>
       </div>
-    </div>
+    </main>
   );
 };

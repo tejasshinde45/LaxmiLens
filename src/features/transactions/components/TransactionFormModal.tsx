@@ -296,7 +296,11 @@ export const TransactionFormModal: React.FC<TransactionFormModalProps> = ({
               </label>
               <select
                 id="accountId"
-                className="flex h-10 w-full rounded-[10px] border border-[#303030] bg-[#1B1B1B] px-3.5 py-2 text-sm text-[#F5F1E8] focus-visible:outline-none focus-visible:border-[#D6AD60]"
+                required
+                aria-required="true"
+                aria-invalid={Boolean(errors.accountId)}
+                aria-describedby={errors.accountId ? 'tx-account-error' : undefined}
+                className="flex h-10 w-full rounded-[10px] border border-[#303030] bg-[#1B1B1B] px-3.5 py-2 text-sm text-[#F5F1E8] focus-visible:outline-none focus-visible:border-[#D6AD60] focus-visible:ring-1 focus-visible:ring-[#D6AD60]"
                 {...register('accountId')}
               >
                 <option value="">Select an account</option>
@@ -307,7 +311,9 @@ export const TransactionFormModal: React.FC<TransactionFormModalProps> = ({
                 ))}
               </select>
               {errors.accountId?.message && (
-                <p className="text-xs text-[#D9827C]">{errors.accountId.message}</p>
+                <p id="tx-account-error" role="alert" className="text-xs text-[#D9827C]">
+                  {errors.accountId.message}
+                </p>
               )}
             </div>
           ) : (
@@ -319,7 +325,11 @@ export const TransactionFormModal: React.FC<TransactionFormModalProps> = ({
                 </label>
                 <select
                   id="accountId"
-                  className="flex h-10 w-full rounded-[10px] border border-[#303030] bg-[#1B1B1B] px-3 py-2 text-sm text-[#F5F1E8] focus-visible:outline-none focus-visible:border-[#D6AD60]"
+                  required
+                  aria-required="true"
+                  aria-invalid={Boolean(errors.accountId)}
+                  aria-describedby={errors.accountId ? 'tx-account-error' : undefined}
+                  className="flex h-10 w-full rounded-[10px] border border-[#303030] bg-[#1B1B1B] px-3 py-2 text-sm text-[#F5F1E8] focus-visible:outline-none focus-visible:border-[#D6AD60] focus-visible:ring-1 focus-visible:ring-[#D6AD60]"
                   {...register('accountId')}
                 >
                   <option value="">Select source</option>
@@ -330,7 +340,9 @@ export const TransactionFormModal: React.FC<TransactionFormModalProps> = ({
                   ))}
                 </select>
                 {errors.accountId?.message && (
-                  <p className="text-xs text-[#D9827C]">{errors.accountId.message}</p>
+                  <p id="tx-account-error" role="alert" className="text-xs text-[#D9827C]">
+                    {errors.accountId.message}
+                  </p>
                 )}
               </div>
 
@@ -341,7 +353,13 @@ export const TransactionFormModal: React.FC<TransactionFormModalProps> = ({
                 </label>
                 <select
                   id="destinationAccountId"
-                  className="flex h-10 w-full rounded-[10px] border border-[#303030] bg-[#1B1B1B] px-3 py-2 text-sm text-[#F5F1E8] focus-visible:outline-none focus-visible:border-[#D6AD60]"
+                  required
+                  aria-required="true"
+                  aria-invalid={Boolean(errors.destinationAccountId)}
+                  aria-describedby={
+                    errors.destinationAccountId ? 'tx-dest-account-error' : undefined
+                  }
+                  className="flex h-10 w-full rounded-[10px] border border-[#303030] bg-[#1B1B1B] px-3 py-2 text-sm text-[#F5F1E8] focus-visible:outline-none focus-visible:border-[#D6AD60] focus-visible:ring-1 focus-visible:ring-[#D6AD60]"
                   {...register('destinationAccountId')}
                 >
                   <option value="">Select destination</option>
@@ -354,7 +372,9 @@ export const TransactionFormModal: React.FC<TransactionFormModalProps> = ({
                     ))}
                 </select>
                 {errors.destinationAccountId?.message && (
-                  <p className="text-xs text-[#D9827C]">{errors.destinationAccountId.message}</p>
+                  <p id="tx-dest-account-error" role="alert" className="text-xs text-[#D9827C]">
+                    {errors.destinationAccountId.message}
+                  </p>
                 )}
               </div>
             </div>
@@ -368,7 +388,9 @@ export const TransactionFormModal: React.FC<TransactionFormModalProps> = ({
               </label>
               <select
                 id="categoryId"
-                className="flex h-10 w-full rounded-[10px] border border-[#303030] bg-[#1B1B1B] px-3.5 py-2 text-sm text-[#F5F1E8] focus-visible:outline-none focus-visible:border-[#D6AD60]"
+                aria-invalid={Boolean(errors.categoryId)}
+                aria-describedby={errors.categoryId ? 'tx-category-error' : undefined}
+                className="flex h-10 w-full rounded-[10px] border border-[#303030] bg-[#1B1B1B] px-3.5 py-2 text-sm text-[#F5F1E8] focus-visible:outline-none focus-visible:border-[#D6AD60] focus-visible:ring-1 focus-visible:ring-[#D6AD60]"
                 {...register('categoryId')}
               >
                 <option value="">Uncategorized</option>
@@ -379,7 +401,9 @@ export const TransactionFormModal: React.FC<TransactionFormModalProps> = ({
                 ))}
               </select>
               {errors.categoryId?.message && (
-                <p className="text-xs text-[#D9827C]">{errors.categoryId.message}</p>
+                <p id="tx-category-error" role="alert" className="text-xs text-[#D9827C]">
+                  {errors.categoryId.message}
+                </p>
               )}
             </div>
           )}
@@ -390,6 +414,8 @@ export const TransactionFormModal: React.FC<TransactionFormModalProps> = ({
               id="transactionDate"
               label="Transaction Date"
               type="date"
+              required
+              aria-required="true"
               error={errors.transactionDate?.message}
               {...register('transactionDate')}
             />
@@ -403,12 +429,16 @@ export const TransactionFormModal: React.FC<TransactionFormModalProps> = ({
             <textarea
               id="note"
               rows={2}
+              aria-invalid={Boolean(errors.note)}
+              aria-describedby={errors.note ? 'tx-note-error' : undefined}
               placeholder="Additional ledger context, invoice reference, or check memo..."
-              className="flex w-full rounded-[10px] border border-[#303030] bg-[#1B1B1B] px-3.5 py-2 text-sm text-[#F5F1E8] placeholder:text-[#858078] focus-visible:outline-none focus-visible:border-[#D6AD60] transition-colors resize-none"
+              className="flex w-full rounded-[10px] border border-[#303030] bg-[#1B1B1B] px-3.5 py-2 text-sm text-[#F5F1E8] placeholder:text-[#858078] focus-visible:outline-none focus-visible:border-[#D6AD60] focus-visible:ring-1 focus-visible:ring-[#D6AD60] transition-colors resize-none"
               {...register('note')}
             />
             {errors.note?.message && (
-              <p className="text-xs text-[#D9827C]">{errors.note.message}</p>
+              <p id="tx-note-error" role="alert" className="text-xs text-[#D9827C]">
+                {errors.note.message}
+              </p>
             )}
           </div>
 

@@ -91,17 +91,24 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Left: Mobile Brand & Desktop Breadcrumb/Title */}
       <div className="flex items-center gap-3">
         {/* Mobile-only logo */}
-        <Link to="/dashboard" className="flex items-center gap-2 lg:hidden">
-          <div className="flex h-8 w-8 items-center justify-center rounded-[8px] bg-gradient-to-br from-[#D6AD60] to-[#B88E46] text-xs font-bold text-[#101010] shadow-sm shadow-[#D6AD60]/20 font-display">
+        <Link
+          to="/dashboard"
+          aria-label="LaxmiLens home"
+          className="flex items-center gap-2 lg:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D6AD60] rounded-[8px]"
+        >
+          <div
+            aria-hidden="true"
+            className="flex h-8 w-8 items-center justify-center rounded-[8px] bg-gradient-to-br from-[#D6AD60] to-[#B88E46] text-xs font-bold text-[#101010] shadow-sm shadow-[#D6AD60]/20 font-display"
+          >
             LL
           </div>
         </Link>
 
         {/* Current Page Title */}
         <div className="flex flex-col">
-          <h1 className="text-base font-bold tracking-tight text-[#F5F1E8] font-display">
+          <span className="text-base font-bold tracking-tight text-[#F5F1E8] font-display">
             {pageTitle}
-          </h1>
+          </span>
         </div>
       </div>
 
@@ -110,10 +117,13 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           type="button"
           onClick={onOpenCommandPalette}
-          className="group flex h-9.5 w-full items-center justify-between rounded-[10px] border border-[#303030] bg-[#1B1B1B] px-3.5 text-xs text-[#858078] transition-colors hover:border-[#454545] hover:text-[#B9B4AA] cursor-pointer"
+          className="group flex h-9.5 w-full items-center justify-between rounded-[10px] border border-[#303030] bg-[#1B1B1B] px-3.5 text-xs text-[#858078] transition-colors hover:border-[#454545] hover:text-[#B9B4AA] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D6AD60] cursor-pointer"
         >
           <span className="flex items-center gap-2">
-            <Search className="h-3.5 w-3.5 text-[#858078] group-hover:text-[#D6AD60] transition-colors" />
+            <Search
+              className="h-3.5 w-3.5 text-[#858078] group-hover:text-[#D6AD60] transition-colors"
+              aria-hidden="true"
+            />
             <span>Search accounts, tools, or press</span>
           </span>
           <kbd className="inline-flex items-center gap-0.5 rounded border border-[#303030] bg-[#242424] px-1.5 py-0.5 text-[10px] font-medium text-[#858078]">
@@ -131,13 +141,13 @@ export const Header: React.FC<HeaderProps> = ({
           size="sm"
           className="md:hidden"
         >
-          <Search className="h-4 w-4" />
+          <Search className="h-4 w-4" aria-hidden="true" />
         </IconButton>
 
         {/* Honest Sync Status Indicator */}
         <div className="hidden sm:flex items-center">
           <Badge variant="outline" size="sm" className="gap-1.5 border-[#303030] bg-[#1B1B1B]">
-            <HardDrive className="h-3 w-3 text-[#72B895]" />
+            <HardDrive className="h-3 w-3 text-[#72B895]" aria-hidden="true" />
             <span className="text-[11px] text-[#B9B4AA]">Local Store</span>
           </Badge>
         </div>
@@ -153,7 +163,7 @@ export const Header: React.FC<HeaderProps> = ({
           size="sm"
           className="relative"
         >
-          <Bell className="h-4 w-4" />
+          <Bell className="h-4 w-4" aria-hidden="true" />
           {unreadCount > 0 && (
             <>
               <span
@@ -161,6 +171,7 @@ export const Header: React.FC<HeaderProps> = ({
                 aria-hidden="true"
               />
               <span
+                aria-hidden="true"
                 data-testid="header-unread-badge"
                 className="absolute -top-1.5 -right-1.5 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-[#D6AD60] px-1 text-[10px] font-bold font-tabular text-[#101010] leading-none"
               >

@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TransactionsPage } from '@/features/transactions/TransactionsPage';
 import * as useTransactionsModule from '@/features/transactions/hooks/useTransactions';
@@ -347,10 +347,11 @@ describe('TransactionsPage Feature (Phase 2D.7.4.1)', () => {
     fireEvent.click(addButton);
 
     // Modal heading
-    expect(screen.getByRole('heading', { name: 'Record Transaction' })).toBeInTheDocument();
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByRole('heading', { name: 'Record Transaction' })).toBeInTheDocument();
 
     // Verify archived accounts are NOT options in the source account selector
-    const accountSelect = screen.getByLabelText(/Account/i);
+    const accountSelect = within(dialog).getByLabelText(/Account/i);
     expect(accountSelect).toBeInTheDocument();
     const options = Array.from(accountSelect.querySelectorAll('option')).map((o) => o.textContent);
     expect(options).toContain('HDFC Salary (bank) ');
@@ -410,7 +411,7 @@ describe('TransactionsPage Feature (Phase 2D.7.4.1)', () => {
     const titleInput = screen.getByLabelText(/Title \/ Description/i);
     fireEvent.change(titleInput, { target: { value: 'Freelance Design Payment' } });
 
-    const accountSelect = screen.getByLabelText(/Account/i);
+    const accountSelect = within(screen.getByRole('dialog')).getByLabelText(/Account/i);
     fireEvent.change(accountSelect, { target: { value: 'acc-1' } });
 
     const submitBtn = screen.getByRole('button', { name: 'Record Transaction' });

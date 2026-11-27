@@ -26,6 +26,7 @@ import {
 } from '@/application/services/FinancialAnalyticsService';
 import { TransactionType } from '@/domain/entities/Transaction';
 import { createUserId } from '@/domain/value-objects/Identifiers';
+import { OFFLINE_QUERY_STALE_TIME_MS } from '@/features/sync/utils/pendingOutboxQuery';
 
 export type ReportTransactionTypeFilter = 'all' | TransactionType;
 
@@ -290,7 +291,7 @@ export function useReports() {
       }
     },
     enabled: canRunReportQuery,
-    staleTime: 0,
+    staleTime: OFFLINE_QUERY_STALE_TIME_MS,
     refetchInterval: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false

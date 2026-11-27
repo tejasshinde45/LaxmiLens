@@ -7,6 +7,35 @@ export interface BackupValidationIssue {
   readonly message: string;
 }
 
+export const MAX_DISPLAYED_BACKUP_VALIDATION_ISSUES = 5;
+
+/**
+ * Formats backup validation issues into a bounded diagnostic summary preserving
+ * total issue count while exposing up to the first five structural/reference errors.
+ */
+export function formatBackupValidationErrorMessage(
+  issues: readonly BackupValidationIssue[],
+  maxDisplayed: number = MAX_DISPLAYED_BACKUP_VALIDATION_ISSUES
+): string {
+  if (issues.length === 0) {
+    return 'Backup archive failed financial schema or referential integrity validation.';
+  }
+
+  if (issues.length === 1) {
+    return `Backup failed validation with 1 integrity issue(s): ${issues[0]!.message}`;
+  }
+
+  const limit = Math.max(1, maxDisplayed);
+  const displayed = issues
+    .slice(0, limit)
+    .map((issue, index) => `[${index + 1}] [${issue.store}/${issue.code}] ${issue.message}`)
+    .join('; ');
+  const remaining = issues.length - limit;
+  const overflowSuffix = remaining > 0 ? ` (+${remaining} more)` : '';
+
+  return `Backup failed validation with ${issues.length} integrity issue(s): ${displayed}${overflowSuffix}`;
+}
+
 export class InvalidBackupFormatError extends DomainError {
   constructor(
     message = 'The selected file is not a valid LaxmiLens encrypted backup container.'

@@ -77,7 +77,7 @@ export const LoginPage: React.FC = () => {
           Don't have an account?{' '}
           <Link
             to="/register"
-            className="text-[#D6AD60] hover:text-[#E2BE7D] font-medium transition-colors ml-1 focus-visible:underline"
+            className="text-[#D6AD60] hover:text-[#E2BE7D] font-medium transition-colors ml-1 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D6AD60]"
           >
             Create an account
           </Link>
@@ -86,8 +86,11 @@ export const LoginPage: React.FC = () => {
     >
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
         {formError && (
-          <div className="flex items-center gap-2.5 p-3 rounded-[10px] bg-[#D9827C]/10 border border-[#D9827C]/30 text-[#D9827C] text-xs">
-            <AlertCircle className="h-4 w-4 shrink-0" />
+          <div
+            role="alert"
+            className="flex items-center gap-2.5 p-3 rounded-[10px] bg-[#D9827C]/10 border border-[#D9827C]/30 text-[#D9827C] text-xs"
+          >
+            <AlertCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
             <span>{formError}</span>
           </div>
         )}
@@ -97,6 +100,8 @@ export const LoginPage: React.FC = () => {
           id="email"
           label="Email Address"
           type="email"
+          required
+          aria-required="true"
           placeholder="name@example.com"
           autoComplete="email"
           disabled={isSubmitting || isGoogleLoading}
@@ -110,6 +115,8 @@ export const LoginPage: React.FC = () => {
           <PasswordInput
             id="password"
             label="Password"
+            required
+            aria-required="true"
             placeholder="••••••••"
             autoComplete="current-password"
             disabled={isSubmitting || isGoogleLoading}
@@ -119,7 +126,7 @@ export const LoginPage: React.FC = () => {
           <div className="flex justify-end pt-1">
             <Link
               to="/forgot-password"
-              className="text-xs text-[#858078] hover:text-[#D6AD60] transition-colors focus-visible:underline"
+              className="text-xs text-[#858078] hover:text-[#D6AD60] transition-colors rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D6AD60]"
             >
               Forgot password?
             </Link>

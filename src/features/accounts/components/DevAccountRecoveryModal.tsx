@@ -57,6 +57,8 @@ export const DevAccountRecoveryModal: React.FC = () => {
       setExecutionResult(result);
       globalQueryClient.invalidateQueries({ queryKey: ['accounts'] });
       globalQueryClient.invalidateQueries({ queryKey: ['accountSyncPendingCount'] });
+      globalQueryClient.invalidateQueries({ queryKey: ['syncPendingCount'] });
+      globalQueryClient.invalidateQueries({ queryKey: ['pendingOutboxEntries'] });
       toast.success(result.message);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Recovery execution failed.');
@@ -100,15 +102,16 @@ export const DevAccountRecoveryModal: React.FC = () => {
           <div className="space-y-4 py-3 text-xs">
             {/* Target Account Input */}
             <div>
-              <label className="text-[11px] font-medium text-[#B9B4AA] block mb-1">
+              <label htmlFor="recovery-account-id" className="text-[11px] font-medium text-[#B9B4AA] block mb-1">
                 Target Account UUID
               </label>
               <div className="flex gap-2">
                 <input
+                  id="recovery-account-id"
                   type="text"
                   value={accountId}
                   onChange={(e) => setAccountId(e.target.value)}
-                  className="flex-1 bg-[#101010] border border-[#303030] rounded-lg px-3 py-1.5 font-mono text-xs text-[#F5F1E8] focus:border-[#D6AD60] focus:outline-none"
+                  className="flex-1 bg-[#101010] border border-[#303030] rounded-lg px-3 py-1.5 font-mono text-xs text-[#F5F1E8] focus-visible:border-[#D6AD60] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#D6AD60]"
                 />
                 <Button
                   variant="outline"

@@ -76,7 +76,6 @@ export const AccountCard: React.FC<AccountCardProps> = ({
   return (
     <Card
       variant="interactive"
-      onClick={() => onViewDetails(account)}
       className={cn(
         'p-5 border-[#303030] bg-[#1B1B1B] relative flex flex-col justify-between transition-all group hover:border-[#454545]',
         account.isArchived && 'opacity-65 border-dashed border-[#454545] bg-[#161616]'
@@ -86,6 +85,7 @@ export const AccountCard: React.FC<AccountCardProps> = ({
       <div className="flex items-start justify-between gap-3 mb-4">
         <div className="flex items-center gap-3 min-w-0">
           <div
+            aria-hidden="true"
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px] text-sm shadow-sm"
             style={{
               backgroundColor: `${accentColor}18`,
@@ -93,14 +93,19 @@ export const AccountCard: React.FC<AccountCardProps> = ({
               border: `1px solid ${accentColor}30`
             }}
           >
-            <IconComponent className="h-5 w-5" />
+            <IconComponent className="h-5 w-5" aria-hidden="true" />
           </div>
 
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <h3 className="font-semibold text-sm text-[#F5F1E8] truncate font-display group-hover:text-[#D6AD60] transition-colors">
-                {account.name}
-              </h3>
+              <button
+                type="button"
+                onClick={() => onViewDetails(account)}
+                aria-label={`View details for ${account.name}`}
+                className="text-left min-w-0 font-semibold text-sm text-[#F5F1E8] truncate font-display group-hover:text-[#D6AD60] transition-colors cursor-pointer after:content-[''] after:absolute after:inset-0 after:rounded-xl focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-[#D6AD60]"
+              >
+                <span className="truncate block">{account.name}</span>
+              </button>
               {account.isArchived && (
                 <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-[#858078] text-[#858078]">
                   Archived
@@ -113,16 +118,16 @@ export const AccountCard: React.FC<AccountCardProps> = ({
           </div>
         </div>
 
-        {/* Dropdown Menu */}
-        <div onClick={(e) => e.stopPropagation()}>
+        {/* Dropdown Menu (kept above full-card button trigger) */}
+        <div className="relative z-10" onClick={(e) => e.stopPropagation()}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                aria-label="Account options"
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-[#858078] hover:bg-[#242424] hover:text-[#F5F1E8] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#D6AD60] transition-colors cursor-pointer"
+                aria-label={`Options for ${account.name}`}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-[#858078] hover:bg-[#242424] hover:text-[#F5F1E8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D6AD60] transition-colors cursor-pointer"
               >
-                <MoreVertical className="h-4 w-4" />
+                <MoreVertical className="h-4 w-4" aria-hidden="true" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">

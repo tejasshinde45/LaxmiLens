@@ -10,7 +10,8 @@ import {
   BackupValidationError,
   InvalidBackupFormatError,
   SafetyBackupRequiredError,
-  UnsupportedBackupVersionError
+  UnsupportedBackupVersionError,
+  formatBackupValidationErrorMessage
 } from '@/domain/errors/BackupErrors';
 
 export type PassphraseStrengthLevel = 'empty' | 'too_short' | 'fair' | 'strong' | 'excellent';
@@ -115,6 +116,9 @@ export function formatBackupErrorMessage(error: unknown, fallbackMessage: string
     return 'Restore failed while writing locally, so all changes were rolled back and your existing data remains untouched.';
   }
   if (error instanceof BackupValidationError) {
+    if (error.issues.length > 1 && !error.message.includes('[2]')) {
+      return formatBackupValidationErrorMessage(error.issues);
+    }
     return error.message;
   }
   if (error instanceof BackupEncryptionError) {

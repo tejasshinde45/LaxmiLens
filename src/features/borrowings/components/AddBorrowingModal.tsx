@@ -99,13 +99,18 @@ export const AddBorrowingModal: React.FC<AddBorrowingModalProps> = ({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4 pt-2">
+        <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4 pt-2" noValidate>
           {/* Lender Name with optional quick autocomplete datalist */}
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-[#F5F1E8]">
-              Lender Name <span className="text-[#D6AD60]">*</span>
+            <label htmlFor="borrowing-lender-name" className="text-xs font-medium text-[#F5F1E8]">
+              Lender Name <span className="text-[#D6AD60]" aria-hidden="true">*</span>
             </label>
             <Input
+              id="borrowing-lender-name"
+              required
+              aria-required="true"
+              aria-invalid={Boolean(errors.lenderName)}
+              aria-describedby={errors.lenderName ? 'borrowing-lender-name-error' : undefined}
               {...register('lenderName')}
               list="existing-lenders-list"
               placeholder="e.g. Rahul Sharma"
@@ -118,16 +123,23 @@ export const AddBorrowingModal: React.FC<AddBorrowingModalProps> = ({
               ))}
             </datalist>
             {errors.lenderName && (
-              <p className="text-xs text-[#D9827C]">{errors.lenderName.message}</p>
+              <p id="borrowing-lender-name-error" role="alert" className="text-xs text-[#D9827C]">
+                {errors.lenderName.message}
+              </p>
             )}
           </div>
 
           {/* Amount (Rupees) */}
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-[#F5F1E8]">
-              Amount (₹) <span className="text-[#D6AD60]">*</span>
+            <label htmlFor="borrowing-amount" className="text-xs font-medium text-[#F5F1E8]">
+              Amount (₹) <span className="text-[#D6AD60]" aria-hidden="true">*</span>
             </label>
             <Input
+              id="borrowing-amount"
+              required
+              aria-required="true"
+              aria-invalid={Boolean(errors.amount)}
+              aria-describedby={errors.amount ? 'borrowing-amount-error' : undefined}
               {...register('amount')}
               type="number"
               step="0.01"
@@ -136,18 +148,25 @@ export const AddBorrowingModal: React.FC<AddBorrowingModalProps> = ({
               disabled={isLoading}
             />
             {errors.amount && (
-              <p className="text-xs text-[#D9827C]">{errors.amount.message}</p>
+              <p id="borrowing-amount-error" role="alert" className="text-xs text-[#D9827C]">
+                {errors.amount.message}
+              </p>
             )}
           </div>
 
           {/* Receiving Account */}
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-[#F5F1E8]">
-              Receiving Account (Cash/Bank) <span className="text-[#D6AD60]">*</span>
+            <label htmlFor="borrowing-receiving-account" className="text-xs font-medium text-[#F5F1E8]">
+              Receiving Account (Cash/Bank) <span className="text-[#D6AD60]" aria-hidden="true">*</span>
             </label>
             <select
+              id="borrowing-receiving-account"
+              required
+              aria-required="true"
+              aria-invalid={Boolean(errors.receivingAccountId)}
+              aria-describedby={errors.receivingAccountId ? 'borrowing-receiving-account-error' : undefined}
               {...register('receivingAccountId')}
-              className="w-full h-10 px-3 rounded-md bg-[#1B1B1B] border border-[#303030] text-[#F5F1E8] text-sm focus:outline-none focus:border-[#D6AD60]"
+              className="w-full h-10 px-3 rounded-md bg-[#1B1B1B] border border-[#303030] text-[#F5F1E8] text-sm focus-visible:outline-none focus-visible:border-[#D6AD60] focus-visible:ring-1 focus-visible:ring-[#D6AD60]"
               disabled={isLoading}
             >
               {eligibleAccounts.map((acc) => (
@@ -157,31 +176,45 @@ export const AddBorrowingModal: React.FC<AddBorrowingModalProps> = ({
               ))}
             </select>
             {errors.receivingAccountId && (
-              <p className="text-xs text-[#D9827C]">{errors.receivingAccountId.message}</p>
+              <p
+                id="borrowing-receiving-account-error"
+                role="alert"
+                className="text-xs text-[#D9827C]"
+              >
+                {errors.receivingAccountId.message}
+              </p>
             )}
           </div>
 
           {/* Dates Grid */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-[#F5F1E8]">
-                Borrowing Date <span className="text-[#D6AD60]">*</span>
+              <label htmlFor="borrowing-date" className="text-xs font-medium text-[#F5F1E8]">
+                Borrowing Date <span className="text-[#D6AD60]" aria-hidden="true">*</span>
               </label>
               <Input
+                id="borrowing-date"
+                required
+                aria-required="true"
+                aria-invalid={Boolean(errors.borrowingDate)}
+                aria-describedby={errors.borrowingDate ? 'borrowing-date-error' : undefined}
                 {...register('borrowingDate')}
                 type="date"
                 disabled={isLoading}
               />
               {errors.borrowingDate && (
-                <p className="text-xs text-[#D9827C]">{errors.borrowingDate.message}</p>
+                <p id="borrowing-date-error" role="alert" className="text-xs text-[#D9827C]">
+                  {errors.borrowingDate.message}
+                </p>
               )}
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-[#858078]">
+              <label htmlFor="borrowing-due-date" className="text-xs font-medium text-[#858078]">
                 Due Date (Optional)
               </label>
               <Input
+                id="borrowing-due-date"
                 {...register('dueDate')}
                 type="date"
                 disabled={isLoading}
@@ -191,10 +224,11 @@ export const AddBorrowingModal: React.FC<AddBorrowingModalProps> = ({
 
           {/* Optional Note */}
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-[#858078]">
+            <label htmlFor="borrowing-notes" className="text-xs font-medium text-[#858078]">
               Note (Optional)
             </label>
             <Input
+              id="borrowing-notes"
               {...register('notes')}
               placeholder="e.g. For medical emergency or home repair"
               disabled={isLoading}
@@ -215,6 +249,7 @@ export const AddBorrowingModal: React.FC<AddBorrowingModalProps> = ({
               type="submit"
               variant="primary"
               size="sm"
+              isLoading={isLoading}
               disabled={isLoading}
             >
               {isLoading ? 'Recording...' : 'Add Borrowing'}

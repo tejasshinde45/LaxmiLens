@@ -286,9 +286,8 @@ describe('Phase 9 Stage 5: Notifications Center & Navigation UI', () => {
     ).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /Notifications \(2 unread\)/i }));
-    expect(
-      screen.getAllByRole('heading', { name: 'Notifications', level: 1 }).length
-    ).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByRole('heading', { name: 'Notifications', level: 1 })).toHaveLength(1);
+    expect(screen.getAllByText('Notifications').length).toBeGreaterThanOrEqual(2);
     expect(
       screen.getByText(/Monitor upcoming and overdue recurring payments/i)
     ).toBeInTheDocument();
@@ -296,16 +295,23 @@ describe('Phase 9 Stage 5: Notifications Center & Navigation UI', () => {
 
   it('includes Notifications navigation with unread count in Sidebar and CommandPalette', () => {
     setupMocks();
-    render(
+    const { rerender } = render(
       <MemoryRouter initialEntries={['/dashboard']}>
         <Sidebar isCollapsed={false} onToggleCollapse={vi.fn()} />
-        <CommandPalette isOpen={true} onClose={vi.fn()} onQuickAdd={vi.fn()} />
+        <CommandPalette isOpen={false} onClose={vi.fn()} onQuickAdd={vi.fn()} />
       </MemoryRouter>
     );
 
     const sidebarLink = screen.getByRole('link', { name: /Notifications/i });
     expect(sidebarLink).toHaveAttribute('href', '/notifications');
     expect(sidebarLink).toHaveTextContent('2');
+
+    rerender(
+      <MemoryRouter initialEntries={['/dashboard']}>
+        <Sidebar isCollapsed={false} onToggleCollapse={vi.fn()} />
+        <CommandPalette isOpen={true} onClose={vi.fn()} onQuickAdd={vi.fn()} />
+      </MemoryRouter>
+    );
     expect(
       screen.getByText('View payment alerts, budget warnings, and alert history')
     ).toBeInTheDocument();

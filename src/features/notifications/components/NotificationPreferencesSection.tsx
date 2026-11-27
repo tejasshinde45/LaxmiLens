@@ -222,14 +222,17 @@ export const NotificationPreferencesSection: React.FC = () => {
               role="alert"
               className="flex items-center gap-2 rounded-[10px] border border-[#D9827C]/30 bg-[#D9827C]/10 px-3 py-2 text-xs text-[#D9827C]"
             >
-              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
               <span>{saveError.message || 'Could not save notification preferences.'}</span>
             </div>
           )}
 
           {statusFeedback === 'saved' && !isDirty && !saveError && (
-            <div className="flex items-center gap-2 rounded-[10px] border border-[#72B895]/30 bg-[#72B895]/10 px-3 py-2 text-xs text-[#72B895]">
-              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+            <div
+              role="status"
+              className="flex items-center gap-2 rounded-[10px] border border-[#72B895]/30 bg-[#72B895]/10 px-3 py-2 text-xs text-[#72B895]"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
               <span>Preferences saved locally and queued for cloud sync.</span>
             </div>
           )}

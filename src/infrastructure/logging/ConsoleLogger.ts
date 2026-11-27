@@ -1,11 +1,14 @@
 import { LoggerPort, LogMetadata } from '@/application/ports/LoggerPort';
-import { env } from '@/config/env';
+import { safeParseEnv } from '@/config/env';
 
 export class ConsoleLogger implements LoggerPort {
-  private isDevelopment = env.VITE_APP_ENV === 'development' || env.VITE_APP_ENV === 'test';
+  private isDevelopment(): boolean {
+    const result = safeParseEnv();
+    return result.ok && (result.env.VITE_APP_ENV === 'development' || result.env.VITE_APP_ENV === 'test');
+  }
 
   public debug(message: string, meta?: LogMetadata): void {
-    if (this.isDevelopment) {
+    if (this.isDevelopment()) {
       console.debug(`[DEBUG] ${message}`, meta ? JSON.stringify(meta) : '');
     }
   }

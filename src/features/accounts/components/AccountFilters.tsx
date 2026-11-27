@@ -38,16 +38,21 @@ export const AccountFilters: React.FC<AccountFiltersProps> = ({
   return (
     <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3.5">
       {/* Filter Tabs / Pills */}
-      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+      <div
+        role="group"
+        aria-label="Filter accounts by type"
+        className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none"
+      >
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;
           return (
             <button
               key={tab.id}
               type="button"
+              aria-pressed={isActive}
               onClick={() => onTabChange(tab.id)}
               className={cn(
-                'inline-flex items-center gap-2 px-3 py-1.5 rounded-[8px] text-xs font-medium whitespace-nowrap transition-colors duration-150',
+                'inline-flex items-center gap-2 px-3 py-1.5 rounded-[8px] text-xs font-medium whitespace-nowrap transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D6AD60]',
                 isActive
                   ? 'bg-[#D6AD60] text-[#101010] font-semibold shadow-sm'
                   : 'bg-[#1B1B1B] text-[#B9B4AA] hover:bg-[#242424] hover:text-[#F5F1E8] border border-[#303030]'
@@ -72,6 +77,7 @@ export const AccountFilters: React.FC<AccountFiltersProps> = ({
       {/* Search Bar */}
       <div className="w-full sm:w-64 shrink-0">
         <SearchInput
+          aria-label="Search accounts or banks"
           placeholder="Search accounts or bank..."
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}

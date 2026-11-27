@@ -1549,4 +1549,92 @@ describe('Phase 11 Stage 2: Backup Export, Decrypt, Preview & Atomic Restore Wor
       modeCompatibility: { requiresReplaceConfirmation: true }
     });
   });
+
+  it('exports, decrypts, previews, and restores borrowings with dueDate: null, linked repayments, and accounts with systemTag: null', async () => {
+    const sourceDb = new MockTransactionalLaxmiLensDB();
+    await sourceDb.open();
+    await seedFullUserDataset(sourceDb);
+
+    // Match DexieAccountRepository (systemTag: null on non-system accounts) and
+    // DexieBorrowingRepository (dueDate: null when optional due date is omitted).
+    await sourceDb.accounts.put({
+      id: ACC_BANK,
+      userId: USER_A,
+      name: 'HDFC Checking',
+      accountType: 'bank',
+      openingBalancePaise: 500000,
+      currency: 'INR',
+      systemTag: null,
+      isArchived: false,
+      version: 1,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z'
+    });
+    await sourceDb.borrowings.put({
+      id: BORROWING_ID,
+      userId: USER_A,
+      lenderId: LENDER_ID,
+      amountPaise: 100000,
+      borrowingDate: '2026-11-05T00:00:00.000Z',
+      dueDate: null,
+      receivingAccountId: ACC_BORROW,
+      transactionId: TX_BORROW,
+      status: 'active',
+      createdAt: '2026-11-05T00:00:00.000Z',
+      updatedAt: '2026-11-05T00:00:00.000Z'
+    });
+
+    const authA = createAuthPort({ id: USER_A, email: 'usera@example.com' });
+    const sourceStorage = new DexieBackupRepository(sourceDb as unknown as LaxmiLensDB);
+    const exportUc = new ExportEncryptedBackupUseCase(
+      authA,
+      sourceStorage,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      USER_A
+    );
+
+    const exported = await exportUc.execute({ passphrase: PASSPHRASE, downloadFile: false });
+    expect(exported.manifest.counts.borrowings).toBe(1);
+    expect(exported.manifest.counts.borrowingRepayments).toBe(1);
+
+    const targetDb = new MockTransactionalLaxmiLensDB();
+    await targetDb.open();
+    const targetStorage = new DexieBackupRepository(targetDb as unknown as LaxmiLensDB);
+    const decryptUc = new DecryptBackupFileUseCase(authA);
+    const previewUc = new GenerateRestorePreviewUseCase(authA, targetStorage, undefined, decryptUc);
+    const restoreUc = new ExecuteBackupRestoreUseCase(authA, targetStorage);
+
+    const decrypted = await decryptUc.execute({
+      rawContent: exported.envelope,
+      passphrase: PASSPHRASE
+    });
+    const preview = await previewUc.execute({
+      archive: decrypted.archive,
+      mode: 'empty'
+    });
+
+    expect(preview.valid).toBe(true);
+    expect(preview.backupCounts.borrowings).toBe(1);
+    expect(preview.backupCounts.borrowingRepayments).toBe(1);
+
+    const restored = await restoreUc.execute({
+      archive: decrypted.archive,
+      mode: 'empty',
+      restorePendingOutbox: true
+    });
+
+    expect(restored.restoredCounts.borrowings).toBe(1);
+    expect(restored.restoredCounts.borrowingRepayments).toBe(1);
+    expect(restored.autoSyncTriggered).toBe(false);
+
+    const restoredAccount = await targetDb.accounts.get(ACC_BANK);
+    const restoredBorrowing = await targetDb.borrowings.get(BORROWING_ID);
+    const restoredRepayment = await targetDb.borrowingRepayments.get(REPAYMENT_ID);
+    expect(restoredAccount?.systemTag).toBeNull();
+    expect(restoredBorrowing?.dueDate).toBeNull();
+    expect(restoredRepayment?.borrowingId).toBe(BORROWING_ID);
+  });
 });

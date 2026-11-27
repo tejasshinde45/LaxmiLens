@@ -54,16 +54,19 @@ export const ForgotPasswordPage: React.FC = () => {
         footer={
           <Link
             to="/login"
-            className="inline-flex items-center gap-1.5 text-xs text-[#D6AD60] hover:text-[#E2BE7D] font-medium transition-colors"
+            className="inline-flex items-center gap-1.5 text-xs text-[#D6AD60] hover:text-[#E2BE7D] font-medium transition-colors rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D6AD60]"
           >
-            <ArrowLeft className="h-3.5 w-3.5" />
+            <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
             <span>Return to sign in</span>
           </Link>
         }
       >
         <div className="space-y-4 py-2">
-          <div className="flex items-start gap-3 p-4 rounded-[10px] bg-[#72B895]/10 border border-[#72B895]/30 text-[#72B895]">
-            <CheckCircle2 className="h-5 w-5 shrink-0 mt-0.5" />
+          <div
+            role="status"
+            className="flex items-start gap-3 p-4 rounded-[10px] bg-[#72B895]/10 border border-[#72B895]/30 text-[#72B895]"
+          >
+            <CheckCircle2 className="h-5 w-5 shrink-0 mt-0.5" aria-hidden="true" />
             <div className="space-y-1 text-xs text-[#F5F1E8]">
               <p className="font-semibold text-[#72B895]">Password reset link sent</p>
               <p className="text-[#B9B4AA] leading-relaxed">
@@ -92,17 +95,20 @@ export const ForgotPasswordPage: React.FC = () => {
       footer={
         <Link
           to="/login"
-          className="inline-flex items-center gap-1.5 text-xs text-[#858078] hover:text-[#F5F1E8] transition-colors"
+          className="inline-flex items-center gap-1.5 text-xs text-[#858078] hover:text-[#F5F1E8] transition-colors rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D6AD60]"
         >
-          <ArrowLeft className="h-3.5 w-3.5" />
+          <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
           <span>Back to sign in</span>
         </Link>
       }
     >
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
         {formError && (
-          <div className="flex items-center gap-2.5 p-3 rounded-[10px] bg-[#D9827C]/10 border border-[#D9827C]/30 text-[#D9827C] text-xs">
-            <AlertCircle className="h-4 w-4 shrink-0" />
+          <div
+            role="alert"
+            className="flex items-center gap-2.5 p-3 rounded-[10px] bg-[#D9827C]/10 border border-[#D9827C]/30 text-[#D9827C] text-xs"
+          >
+            <AlertCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
             <span>{formError}</span>
           </div>
         )}

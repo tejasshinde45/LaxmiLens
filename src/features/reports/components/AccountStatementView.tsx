@@ -225,15 +225,15 @@ export const AccountStatementView: React.FC<AccountStatementViewProps> = ({
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
+            <table className="w-full text-left border-collapse text-xs" aria-label="Account chronological ledger statement">
               <thead>
                 <tr className="border-b border-[#303030] text-[#858078]">
-                  <th className="py-2 pr-3 font-semibold whitespace-nowrap">Date</th>
-                  <th className="py-2 px-3 font-semibold">Description & Details</th>
-                  <th className="py-2 px-3 font-semibold">Type</th>
-                  <th className="py-2 px-3 font-semibold text-right">Credit (+)</th>
-                  <th className="py-2 px-3 font-semibold text-right">Debit (-)</th>
-                  <th className="py-2 pl-3 font-semibold text-right">Running Balance</th>
+                  <th scope="col" className="py-2 pr-3 font-semibold whitespace-nowrap">Date</th>
+                  <th scope="col" className="py-2 px-3 font-semibold">Description & Details</th>
+                  <th scope="col" className="py-2 px-3 font-semibold">Type</th>
+                  <th scope="col" className="py-2 px-3 font-semibold text-right">Credit (+)</th>
+                  <th scope="col" className="py-2 px-3 font-semibold text-right">Debit (-)</th>
+                  <th scope="col" className="py-2 pl-3 font-semibold text-right">Running Balance</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#303030]/60">

@@ -35,7 +35,12 @@ export const createTransactionSchema = z
     accountId: z.string().min(1, 'Please select an account'),
     destinationAccountId: z.string().optional(),
     categoryId: z.string().optional(),
-    transactionDate: z.string().min(1, 'Transaction date is required'),
+    transactionDate: z
+      .string()
+      .min(1, 'Transaction date is required')
+      .refine((val) => !isNaN(Date.parse(val)), {
+        message: 'Enter a valid transaction date'
+      }),
     note: z.string().max(500, 'Note cannot exceed 500 characters').optional()
   })
   .superRefine((data, ctx) => {
@@ -75,7 +80,12 @@ export const editTransactionSchema = z
     accountId: z.string().min(1, 'Please select an account'),
     destinationAccountId: z.string().optional(),
     categoryId: z.string().optional(),
-    transactionDate: z.string().min(1, 'Transaction date is required'),
+    transactionDate: z
+      .string()
+      .min(1, 'Transaction date is required')
+      .refine((val) => !isNaN(Date.parse(val)), {
+        message: 'Enter a valid transaction date'
+      }),
     note: z.string().max(500, 'Note cannot exceed 500 characters').optional()
   })
   .superRefine((data, ctx) => {

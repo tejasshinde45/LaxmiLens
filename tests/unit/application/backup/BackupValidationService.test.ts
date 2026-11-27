@@ -786,4 +786,140 @@ describe('BackupValidationService', () => {
       service.validateForRestore(resigned, { authenticatedUserId: USER_A })
     ).rejects.toThrow(BackupIntegrityError);
   });
+
+  it('accepts borrowing dueDate: null with linked repayments and account systemTag: null', async () => {
+    const input = createValidBuildInput();
+    input.rawStoreData.accounts = input.rawStoreData.accounts!.map((acc) =>
+      acc.id === ACC_BANK
+        ? { ...acc, systemTag: null }
+        : acc
+    );
+    input.rawStoreData.borrowings = [
+      {
+        ...input.rawStoreData.borrowings![0]!,
+        dueDate: null
+      }
+    ];
+
+    const archive = await service.buildSanitizedArchive(input);
+    expect(archive.data.accounts[0]!.systemTag).toBeNull();
+    expect(archive.data.borrowings[0]!.dueDate).toBeNull();
+
+    const preview = await service.validateForRestore(archive, {
+      authenticatedUserId: USER_A
+    });
+
+    expect(preview.valid).toBe(true);
+    expect(preview.backupCounts.borrowings).toBe(1);
+    expect(preview.backupCounts.borrowingRepayments).toBe(1);
+  });
+
+  it('rejects invalid non-null borrowing due dates and enforces repayment parent validation', async () => {
+    const invalidDueDates: unknown[] = ['', '   ', 'not-a-date', 12345];
+
+    for (const badDueDate of invalidDueDates) {
+      const input = createValidBuildInput();
+      input.rawStoreData.borrowings = [
+        {
+          ...input.rawStoreData.borrowings![0]!,
+          dueDate: badDueDate
+        }
+      ];
+
+      const archive = await service.buildSanitizedArchive(input);
+      let caughtError: unknown;
+      try {
+        await service.validateForRestore(archive, { authenticatedUserId: USER_A });
+      } catch (err) {
+        caughtError = err;
+      }
+
+      expect(caughtError).toBeInstanceOf(BackupValidationError);
+      const validationError = caughtError as BackupValidationError;
+      expect(validationError.issues.map((i) => i.code)).toEqual([
+        'INVALID_BORROWING_RECORD',
+        'MISSING_REPAYMENT_BORROWING'
+      ]);
+      expect(validationError.message).toContain(
+        'Backup failed validation with 2 integrity issue(s):'
+      );
+      expect(validationError.message).toContain('[1] [borrowings/INVALID_BORROWING_RECORD]');
+      expect(validationError.message).toContain(
+        '[2] [borrowingRepayments/MISSING_REPAYMENT_BORROWING]'
+      );
+    }
+  });
+
+  it('reports total issue count and displays up to the first five integrity issues without exposing sensitive data', async () => {
+    const input = createValidBuildInput();
+    input.rawStoreData.accounts = input.rawStoreData.accounts!.map((acc) =>
+      acc.id === ACC_BANK
+        ? { ...acc, name: 'SECRET_HDFC_VIP', openingBalancePaise: 987654 }
+        : acc
+    );
+    input.rawStoreData.lenders = [
+      {
+        ...input.rawStoreData.lenders![0]!,
+        name: 'SECRET_LENDER_RAJESH'
+      }
+    ];
+
+    const badBorrowingIds = [
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa01',
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa02',
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa03',
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa04',
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa05',
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa06'
+    ];
+    input.rawStoreData.borrowings = badBorrowingIds.map((id, idx) => ({
+      id,
+      userId: USER_A,
+      lenderId: LENDER_ID,
+      amountPaise: 100000 + idx,
+      borrowingDate: '2026-11-05T00:00:00.000Z',
+      dueDate: idx === 0 ? 'invalid-date' : '',
+      receivingAccountId: ACC_BORROWINGS,
+      transactionId: TX_BORROWING,
+      status: 'active',
+      notes: 'SECRET_MEDICAL_NOTE',
+      createdAt: '2026-11-05T00:00:00.000Z',
+      updatedAt: '2026-11-05T00:00:00.000Z'
+    }));
+    input.rawStoreData.borrowingRepayments = [
+      {
+        ...input.rawStoreData.borrowingRepayments![0]!,
+        borrowingId: badBorrowingIds[0]!
+      }
+    ];
+
+    const archive = await service.buildSanitizedArchive(input);
+    let caughtError: unknown;
+    try {
+      await service.validateForRestore(archive, { authenticatedUserId: USER_A });
+    } catch (err) {
+      caughtError = err;
+    }
+
+    expect(caughtError).toBeInstanceOf(BackupValidationError);
+    const validationError = caughtError as BackupValidationError;
+    expect(validationError.issues).toHaveLength(7);
+    expect(validationError.message).toMatch(
+      /^Backup failed validation with 7 integrity issue\(s\): /
+    );
+    expect(validationError.message).toContain('[1] [borrowings/INVALID_BORROWING_RECORD]');
+    expect(validationError.message).toContain('[5] [borrowings/INVALID_BORROWING_RECORD]');
+    expect(validationError.message).toContain(badBorrowingIds[4]!);
+    expect(validationError.message).not.toContain(badBorrowingIds[5]!);
+    expect(validationError.message).not.toContain('[6]');
+    expect(validationError.message).not.toContain('MISSING_REPAYMENT_BORROWING');
+    expect(validationError.message).toContain('(+2 more)');
+
+    // Never leak balances, names, notes, or amounts into diagnostic error messages
+    expect(validationError.message).not.toContain('SECRET_HDFC_VIP');
+    expect(validationError.message).not.toContain('SECRET_LENDER_RAJESH');
+    expect(validationError.message).not.toContain('SECRET_MEDICAL_NOTE');
+    expect(validationError.message).not.toContain('987654');
+    expect(validationError.message).not.toContain('100000');
+  });
 });

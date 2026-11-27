@@ -388,14 +388,14 @@ export const FinancialSummaryReportView: React.FC<FinancialSummaryReportViewProp
           </p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
+            <table className="w-full text-left border-collapse text-xs" aria-label="Previous period comparison">
               <thead>
                 <tr className="border-b border-[#303030] text-[#858078]">
-                  <th className="py-2 pr-4 font-semibold">Metric</th>
-                  <th className="py-2 px-3 font-semibold text-right">Current Period</th>
-                  <th className="py-2 px-3 font-semibold text-right">Previous Period</th>
-                  <th className="py-2 px-3 font-semibold text-right">Delta</th>
-                  <th className="py-2 pl-3 font-semibold text-right">Change</th>
+                  <th scope="col" className="py-2 pr-4 font-semibold">Metric</th>
+                  <th scope="col" className="py-2 px-3 font-semibold text-right">Current Period</th>
+                  <th scope="col" className="py-2 px-3 font-semibold text-right">Previous Period</th>
+                  <th scope="col" className="py-2 px-3 font-semibold text-right">Delta</th>
+                  <th scope="col" className="py-2 pl-3 font-semibold text-right">Change</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#303030]/60">
@@ -491,16 +491,16 @@ export const FinancialSummaryReportView: React.FC<FinancialSummaryReportViewProp
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
+          <table className="w-full text-left border-collapse text-xs" aria-label="Period cash flow schedule">
             <thead>
               <tr className="border-b border-[#303030] text-[#858078]">
-                <th className="py-2 pr-4 font-semibold">Period</th>
-                <th className="py-2 px-3 font-semibold text-right">Income</th>
-                <th className="py-2 px-3 font-semibold text-right">Expenses</th>
-                <th className="py-2 px-3 font-semibold text-right">Net Cash Flow</th>
-                <th className="py-2 px-3 font-semibold text-right">Transfers In</th>
-                <th className="py-2 px-3 font-semibold text-right">Transfers Out</th>
-                <th className="py-2 pl-3 font-semibold text-right">Txns</th>
+                <th scope="col" className="py-2 pr-4 font-semibold">Period</th>
+                <th scope="col" className="py-2 px-3 font-semibold text-right">Income</th>
+                <th scope="col" className="py-2 px-3 font-semibold text-right">Expenses</th>
+                <th scope="col" className="py-2 px-3 font-semibold text-right">Net Cash Flow</th>
+                <th scope="col" className="py-2 px-3 font-semibold text-right">Transfers In</th>
+                <th scope="col" className="py-2 px-3 font-semibold text-right">Transfers Out</th>
+                <th scope="col" className="py-2 pl-3 font-semibold text-right">Txns</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#303030]/60">

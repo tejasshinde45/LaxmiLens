@@ -128,6 +128,10 @@ export const CreateBudgetModal: React.FC<CreateBudgetModalProps> = ({
             </label>
             <select
               id="budget-categoryId"
+              required
+              aria-required="true"
+              aria-invalid={Boolean(errors.categoryId)}
+              aria-describedby={errors.categoryId ? 'budget-categoryId-error' : undefined}
               disabled={isBusy}
               className="flex h-10 w-full rounded-[10px] border border-[#303030] bg-[#1B1B1B] px-3.5 py-2 text-sm text-[#F5F1E8] focus-visible:outline-none focus-visible:border-[#D6AD60] focus-visible:ring-1 focus-visible:ring-[#D6AD60] disabled:opacity-50"
               {...register('categoryId')}
@@ -144,7 +148,9 @@ export const CreateBudgetModal: React.FC<CreateBudgetModalProps> = ({
               })}
             </select>
             {errors.categoryId?.message && (
-              <p className="text-xs text-[#D9827C]">{errors.categoryId.message}</p>
+              <p id="budget-categoryId-error" role="alert" className="text-xs text-[#D9827C]">
+                {errors.categoryId.message}
+              </p>
             )}
             {activeExpenseCategories.length === 0 && (
               <p className="text-xs text-[#E4B66D]">

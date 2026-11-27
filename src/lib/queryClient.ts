@@ -1,4 +1,9 @@
 import { QueryClient } from '@tanstack/react-query';
+import {
+  OFFLINE_QUERY_STALE_TIME_MS,
+  computeQueryRetryDelay,
+  shouldRetryQuery
+} from './queryRetryPolicy';
 
 /**
  * TanStack Query Client configuration.
@@ -10,14 +15,16 @@ import { QueryClient } from '@tanstack/react-query';
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 1000 * 60 * 5, // 5 minutes
+      staleTime: OFFLINE_QUERY_STALE_TIME_MS, // 5 minutes
       gcTime: 1000 * 60 * 30, // 30 minutes
-      retry: (failureCount, error) => {
-        // Do not retry on client 4xx errors
-        if (error instanceof Error && error.message.includes('4')) return false;
-        return failureCount < 2;
-      },
-      refetchOnWindowFocus: false
+      retry: shouldRetryQuery,
+      retryDelay: computeQueryRetryDelay,
+      refetchInterval: false,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false
+    },
+    mutations: {
+      retry: false
     }
   }
 });

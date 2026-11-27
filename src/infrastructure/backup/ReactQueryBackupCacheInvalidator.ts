@@ -23,6 +23,7 @@ export class ReactQueryBackupCacheInvalidator implements BackupCacheInvalidator 
       ['outbox', userId],
       ['recurring', userId],
       ['pendingOutboxRecurringIds', userId],
+      ['pendingOutboxEntries', userId],
       ['reports', userId],
       ['syncPendingCount', userId],
       notificationQueryKeys.all(userId),

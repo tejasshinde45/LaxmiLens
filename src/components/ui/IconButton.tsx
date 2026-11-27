@@ -8,7 +8,10 @@ export interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>
 }
 
 export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
-  ({ className, variant = 'ghost', size = 'md', 'aria-label': ariaLabel, children, ...props }, ref) => {
+  (
+    { className, variant = 'ghost', size = 'md', type = 'button', 'aria-label': ariaLabel, children, ...props },
+    ref
+  ) => {
     const baseStyles =
       'inline-flex items-center justify-center transition-colors select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D6AD60] focus-visible:ring-offset-2 focus-visible:ring-offset-[#101010] disabled:opacity-50 disabled:pointer-events-none rounded-[10px] cursor-pointer active:scale-95 shrink-0';
 
@@ -29,6 +32,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
     return (
       <button
         ref={ref}
+        type={type}
         aria-label={ariaLabel}
         className={cn(baseStyles, variants[variant], sizes[size], className)}
         {...props}

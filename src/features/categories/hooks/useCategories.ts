@@ -1,15 +1,19 @@
-import { useQuery } from '@tanstack/react-query';
+import { useContext } from 'react';
+import { useQuery, QueryClientContext, type QueryClient } from '@tanstack/react-query';
 import { queryClient as globalQueryClient } from '@/lib/queryClient';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { defaultDatabaseManager } from '@/infrastructure/database/local/DatabaseManager';
 import { DexieCategoryRepository } from '@/infrastructure/database/local/repositories/DexieCategoryRepository';
 import { Category } from '@/domain/entities/Category';
 import { createUserId } from '@/domain/value-objects/Identifiers';
+import { OFFLINE_QUERY_STALE_TIME_MS } from '@/features/sync/utils/pendingOutboxQuery';
 
 // Fallback singleton repository for test/isolated contexts
 const fallbackCategoryRepo = new DexieCategoryRepository();
 
-export function useCategories(client = globalQueryClient) {
+export function useCategories(explicitClient?: QueryClient) {
+  const contextClient = useContext(QueryClientContext);
+  const client = explicitClient ?? contextClient ?? globalQueryClient;
   let user: { id: string } | null = null;
   try {
     const auth = useAuth();
@@ -48,7 +52,7 @@ export function useCategories(client = globalQueryClient) {
         }
       },
       enabled: !!user?.id,
-      staleTime: 5 * 60 * 1000,
+      staleTime: OFFLINE_QUERY_STALE_TIME_MS,
       refetchInterval: false,
       refetchOnWindowFocus: false,
       refetchOnReconnect: false

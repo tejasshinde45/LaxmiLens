@@ -21,6 +21,11 @@ import { DexieNotificationRepository } from '@/infrastructure/database/local/rep
 import { OutboxManager } from '@/infrastructure/sync/OutboxManager';
 import { DexieUnitOfWork } from '@/infrastructure/database/local/DexieUnitOfWork';
 import { notificationQueryKeys } from './notificationQueryKeys';
+import {
+  fetchSharedPendingOutboxEntries,
+  OFFLINE_QUERY_STALE_TIME_MS,
+  pendingOutboxEntriesQueryKey
+} from '@/features/sync/utils/pendingOutboxQuery';
 
 const fallbackNotifRepo = new DexieNotificationRepository(db);
 const fallbackSyncPort = new OutboxManager(db);
@@ -103,7 +108,7 @@ export function useNotifications(
         }
       },
       enabled: !!user?.id,
-      staleTime: 0,
+      staleTime: OFFLINE_QUERY_STALE_TIME_MS,
       refetchInterval: false,
       refetchOnWindowFocus: false,
       refetchOnReconnect: false
@@ -116,20 +121,16 @@ export function useNotifications(
       queryKey: notificationQueryKeys.pendingOutbox(user?.id),
       queryFn: async () => {
         if (!user?.id) return [];
-        try {
-          const repos = await defaultDatabaseManager.getActiveRepositories();
-          const entries = await repos.outboxManager.getPendingEntries(user.id, 150);
-          return entries.filter((e) => e.entity === 'notifications').map((e) => e.entityId);
-        } catch (activeErr) {
-          if (!(activeErr instanceof NoActiveDatabaseSessionError)) {
-            throw activeErr;
-          }
-          const entries = await fallbackSyncPort.getPendingEntries(user.id, 150);
-          return entries.filter((e) => e.entity === 'notifications').map((e) => e.entityId);
-        }
+        const entries = await fetchSharedPendingOutboxEntries(
+          user.id,
+          client,
+          fallbackSyncPort,
+          150
+        );
+        return entries.filter((e) => e.entity === 'notifications').map((e) => e.entityId);
       },
       enabled: !!user?.id,
-      staleTime: 0,
+      staleTime: OFFLINE_QUERY_STALE_TIME_MS,
       refetchInterval: false,
       refetchOnWindowFocus: false,
       refetchOnReconnect: false
@@ -146,6 +147,7 @@ export function useNotifications(
     client.invalidateQueries({ queryKey: notificationQueryKeys.all(user?.id) });
     client.invalidateQueries({ queryKey: notificationQueryKeys.pendingOutbox(user?.id) });
     client.invalidateQueries({ queryKey: ['syncPendingCount', user?.id] });
+    client.invalidateQueries({ queryKey: pendingOutboxEntriesQueryKey(user?.id) });
   };
 
   const markAsReadMutation = useMutation<NotificationDTO | null, Error, string>(

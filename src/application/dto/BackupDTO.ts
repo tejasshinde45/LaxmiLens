@@ -130,7 +130,7 @@ export interface BackupAccountRecord {
   color?: string;
   icon?: string;
   notes?: string;
-  systemTag?: string;
+  systemTag?: string | null;
   isArchived: boolean;
   version: number;
   createdAt: string;
@@ -243,7 +243,7 @@ export interface BackupBorrowingRecord {
   lenderId: string;
   amountPaise: number;
   borrowingDate: string;
-  dueDate?: string;
+  dueDate?: string | null;
   receivingAccountId: string;
   transactionId: string;
   status: BorrowingStatus;
