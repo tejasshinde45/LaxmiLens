@@ -15,6 +15,8 @@ describe('Database Migration & RLS Security Validation', () => {
     expect(migrationFiles).toContain('20260106000000_category_identity_protection.sql');
     expect(migrationFiles).toContain('20260107000000_recurring_transactions.sql');
     expect(migrationFiles).toContain('20260108000000_notifications.sql');
+    expect(migrationFiles).toContain('20260109000000_safe_account_deletion.sql');
+    expect(migrationFiles).toContain('20260110000000_account_deletion_tombstones.sql');
 
     // Verify archived prototype migration is preserved
     const archiveDir = path.resolve(__dirname, '../../../supabase/archive');
@@ -414,6 +416,206 @@ describe('Database Migration & RLS Security Validation', () => {
     expect(migrationContent).toContain('dismissed status and timestamps are locked');
     expect(migrationContent).toContain('read status cannot revert to unread and read_at is locked');
     expect(migrationContent).toContain('IF NEW.version <> OLD.version + 1 THEN');
+  });
+
+  it('validates safe account deletion and tombstone SQL security, concurrency, and idempotency hardening', () => {
+    const deleteMigrationPath = path.join(migrationsDir, '20260109000000_safe_account_deletion.sql');
+    const tombstoneMigrationPath = path.join(
+      migrationsDir,
+      '20260110000000_account_deletion_tombstones.sql'
+    );
+    expect(fs.existsSync(deleteMigrationPath)).toBe(true);
+    expect(fs.existsSync(tombstoneMigrationPath)).toBe(true);
+
+    const deleteSql = fs.readFileSync(deleteMigrationPath, 'utf-8');
+    const tombstoneSql = fs.readFileSync(tombstoneMigrationPath, 'utf-8');
+
+    // 1. Direct client DELETE removed and blocked while preserving service/owner cleanup
+    expect(tombstoneSql).toContain(
+      'DROP POLICY IF EXISTS "Users can delete their own accounts" ON public.accounts;'
+    );
+    expect(tombstoneSql).toContain(
+      'REVOKE ALL ON TABLE public.accounts FROM anon, authenticated, PUBLIC;'
+    );
+    expect(tombstoneSql).toContain(
+      'GRANT SELECT, INSERT, UPDATE ON TABLE public.accounts TO authenticated;'
+    );
+    expect(tombstoneSql).toContain("IF TG_OP = 'DELETE' THEN");
+    expect(tombstoneSql).toContain("v_calling_role IN ('authenticated', 'anon')");
+    expect(tombstoneSql).toContain("OR current_user IN ('authenticated', 'anon')");
+    expect(tombstoneSql).toContain('RETURN OLD;');
+
+    // 2. Direct tombstone updates enforce full invariants & block post-tombstone mutation/reactivation
+    expect(tombstoneSql).toContain('IF OLD.deleted_at IS NOT NULL THEN');
+    expect(tombstoneSql).toContain('IF NEW.deleted_at IS NOT NULL THEN');
+    expect(tombstoneSql).toContain("OLD.system_tag IS NOT NULL");
+    expect(tombstoneSql).toContain("lower(trim(OLD.name)) = 'personal borrowings'");
+    expect(tombstoneSql).toContain('IF NEW.version IS DISTINCT FROM (OLD.version + 1) THEN');
+    expect(tombstoneSql).toContain("USING ERRCODE = '40001'");
+    expect(tombstoneSql).toContain("USING ERRCODE = '42501'");
+    expect(tombstoneSql).toContain("USING ERRCODE = '23514'");
+    expect(tombstoneSql).toContain("USING ERRCODE = '23503'");
+
+    // Every identity, metadata, and financial column on public.accounts must stay locked during tombstoning
+    for (const immutableCol of [
+      'id',
+      'user_id',
+      'name',
+      'account_type',
+      'opening_balance_paise',
+      'currency',
+      'institution_name',
+      'color',
+      'icon',
+      'notes',
+      'system_tag',
+      'is_archived',
+      'created_at'
+    ]) {
+      expect(tombstoneSql).toContain(`NEW.${immutableCol} IS DISTINCT FROM OLD.${immutableCol}`);
+    }
+
+    // Both trigger and RPC verify zero dependencies across all 4 account-referencing tables
+    for (const depTable of [
+      'public.transactions',
+      'public.recurring_rules',
+      'public.borrowings',
+      'public.borrowing_repayments'
+    ]) {
+      const occurrences = tombstoneSql.split(`FROM ${depTable}`).length - 1;
+      expect(occurrences).toBeGreaterThanOrEqual(2);
+    }
+
+    // 3. Concurrency row locking & UPDATE reference protection without transfer deadlocks
+    expect(tombstoneSql).toContain('SELECT * INTO v_account\n    FROM public.accounts');
+    expect(tombstoneSql).toContain('FOR UPDATE;');
+    expect(tombstoneSql).toContain('ORDER BY id ASC\n                FOR SHARE');
+    expect(tombstoneSql).toContain('FOR SHARE;');
+    expect(tombstoneSql).toContain(
+      "TG_OP = 'INSERT' OR NEW.account_id IS DISTINCT FROM OLD.account_id"
+    );
+    expect(tombstoneSql).toContain(
+      "TG_OP = 'INSERT' OR NEW.destination_account_id IS DISTINCT FROM OLD.destination_account_id"
+    );
+    expect(tombstoneSql).toContain(
+      "TG_OP = 'INSERT' OR NEW.receiving_account_id IS DISTINCT FROM OLD.receiving_account_id"
+    );
+    expect(tombstoneSql).toContain(
+      "TG_OP = 'INSERT' OR NEW.payment_account_id IS DISTINCT FROM OLD.payment_account_id"
+    );
+    expect(tombstoneSql).toContain('BEFORE INSERT OR UPDATE OR DELETE ON public.accounts');
+    expect(tombstoneSql).toContain('BEFORE INSERT OR UPDATE ON public.transactions');
+    expect(tombstoneSql).toContain('BEFORE INSERT OR UPDATE ON public.recurring_rules');
+    expect(tombstoneSql).toContain('BEFORE INSERT OR UPDATE ON public.borrowings');
+    expect(tombstoneSql).toContain('BEFORE INSERT OR UPDATE ON public.borrowing_repayments');
+
+    // 4. Migration reapplication safety & 3-argument tombstone RPC exclusivity
+    expect(deleteSql).toContain("IF v_confdeltype = 'r' THEN");
+    expect(deleteSql).toContain("AND array_length(c.conkey, 1) = 1");
+    expect(deleteSql).toContain("AND a.attname = 'deleted_at'");
+    expect(deleteSql).toContain(
+      "to_regprocedure('public.safe_delete_account(uuid, integer, timestamptz)') IS NOT NULL"
+    );
+    expect(tombstoneSql).toContain('DROP FUNCTION IF EXISTS public.safe_delete_account(UUID, INT);');
+    expect(tombstoneSql).toContain(
+      'DROP FUNCTION IF EXISTS public.safe_delete_account(UUID, INT, TIMESTAMPTZ);'
+    );
+    expect(tombstoneSql).toContain('p_expected_version INT DEFAULT NULL,');
+    expect(tombstoneSql).toContain('p_deleted_at TIMESTAMPTZ DEFAULT NULL');
+
+    // Trigger & RPC ownership and least-privilege ACLs
+    expect(tombstoneSql).toContain('ALTER FUNCTION public.protect_tombstoned_account() OWNER TO postgres;');
+    expect(tombstoneSql).toContain(
+      'REVOKE ALL ON FUNCTION public.protect_tombstoned_account() FROM PUBLIC, anon, authenticated;'
+    );
+    expect(tombstoneSql).toContain(
+      'ALTER FUNCTION public.reject_tombstoned_account_reference() OWNER TO postgres;'
+    );
+    expect(tombstoneSql).toContain(
+      'REVOKE ALL ON FUNCTION public.reject_tombstoned_account_reference() FROM PUBLIC, anon, authenticated;'
+    );
+    expect(tombstoneSql).toContain(
+      'ALTER FUNCTION public.safe_delete_account(UUID, INT, TIMESTAMPTZ) OWNER TO postgres;'
+    );
+    expect(tombstoneSql).toContain(
+      'REVOKE ALL ON FUNCTION public.safe_delete_account(UUID, INT, TIMESTAMPTZ) FROM PUBLIC, anon, authenticated;'
+    );
+    expect(tombstoneSql).toContain(
+      'GRANT EXECUTE ON FUNCTION public.safe_delete_account(UUID, INT, TIMESTAMPTZ) TO authenticated;'
+    );
+
+    // 5. Security modes, trigger authorization, tenant isolation, and PostgREST RPC contract
+    const extractFnBody = (sql: string, fnSignatureStart: string): string => {
+      const start = sql.indexOf(fnSignatureStart);
+      expect(start).toBeGreaterThan(-1);
+      const end = sql.indexOf('$$;', start);
+      expect(end).toBeGreaterThan(start);
+      return sql.slice(start, end);
+    };
+
+    const protectTriggerSql = extractFnBody(
+      tombstoneSql,
+      'CREATE OR REPLACE FUNCTION public.protect_tombstoned_account()'
+    );
+    const refTriggerSql = extractFnBody(
+      tombstoneSql,
+      'CREATE OR REPLACE FUNCTION public.reject_tombstoned_account_reference()'
+    );
+    const rpcFnSql = extractFnBody(
+      tombstoneSql,
+      'CREATE OR REPLACE FUNCTION public.safe_delete_account('
+    );
+
+    // Direct client UPDATE setting/modifying deleted_at is denied while RPC SECURITY DEFINER owner & admins succeed
+    expect(protectTriggerSql).toContain('SECURITY INVOKER');
+    expect(protectTriggerSql).toContain('SET search_path = pg_catalog, public');
+    expect(protectTriggerSql).toContain('(NEW.deleted_at IS DISTINCT FROM OLD.deleted_at)');
+    expect(protectTriggerSql).toContain("AND current_user IN ('authenticated', 'anon')");
+    expect(protectTriggerSql).toContain(
+      'cannot directly set or modify deleted_at on account %. Use safe_delete_account RPC.'
+    );
+    // Client UPDATE denial precedes post-tombstone mutation and active->tombstone transition checks;
+    // active-to-active updates (deleted_at unchanged NULL) still return NEW for authenticated users.
+    const protectUpdateSql = protectTriggerSql.slice(
+      protectTriggerSql.indexOf("IF TG_OP = 'UPDATE' THEN")
+    );
+    expect(protectUpdateSql.indexOf("current_user IN ('authenticated', 'anon')")).toBeLessThan(
+      protectUpdateSql.indexOf('IF OLD.deleted_at IS NOT NULL THEN')
+    );
+    expect(protectUpdateSql.indexOf('IF OLD.deleted_at IS NOT NULL THEN')).toBeLessThan(
+      protectUpdateSql.indexOf('IF NEW.deleted_at IS NOT NULL THEN')
+    );
+
+    // Reference locking trigger stays SECURITY INVOKER with explicit tenant filter user_id = NEW.user_id
+    expect(refTriggerSql).toContain('SECURITY INVOKER');
+    expect(refTriggerSql).toContain('SET search_path = pg_catalog, public');
+    expect(refTriggerSql.split('user_id = NEW.user_id').length - 1).toBe(4);
+
+    // RPC uses SECURITY DEFINER owned by postgres with explicit auth.uid() & user_id ownership validation
+    expect(rpcFnSql).toContain('RETURNS BOOLEAN');
+    expect(rpcFnSql).toContain('SECURITY DEFINER');
+    expect(rpcFnSql).not.toContain('SECURITY INVOKER');
+    expect(rpcFnSql).toContain('SET search_path = pg_catalog, public');
+    expect(rpcFnSql).toContain('v_user_id := auth.uid();');
+    expect(rpcFnSql).toContain('IF p_account_id IS NULL THEN');
+    expect(rpcFnSql).toContain('WHERE id = p_account_id\n      AND user_id = v_user_id\n    FOR UPDATE;');
+    expect(rpcFnSql.split('user_id = v_user_id').length - 1).toBeGreaterThanOrEqual(6);
+    expect(rpcFnSql).toContain('WHERE id = p_account_id\n      AND user_id = v_user_id\n      AND version = v_account.version\n      AND deleted_at IS NULL;');
+    expect(rpcFnSql).toContain('IF NOT FOUND THEN\n        RAISE EXCEPTION');
+
+    // Verify PostgREST RPC argument contract matches SupabaseAccountRepository client call
+    const repoPath = path.resolve(
+      __dirname,
+      '../../../src/infrastructure/database/cloud/repositories/SupabaseAccountRepository.ts'
+    );
+    const repoContent = fs.readFileSync(repoPath, 'utf-8');
+    expect(repoContent).toContain("this.client.rpc('safe_delete_account', rpcArgs)");
+    expect(repoContent).toContain('p_account_id: id');
+    expect(repoContent).toContain('p_expected_version: expectedVersion');
+    expect(repoContent).toContain('rpcArgs.p_deleted_at = normalizedDeletedAt');
+
+    expect(deleteSql).toContain('SECURITY INVOKER');
+    expect(deleteSql).toContain('SET search_path = pg_catalog, public');
   });
 
   it('validates that all RAISE statements across all migrations have matching format placeholder and argument counts', () => {

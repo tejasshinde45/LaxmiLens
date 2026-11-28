@@ -1,3 +1,4 @@
+import Dexie from 'dexie';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { LaxmiLensDB } from '@/infrastructure/database/local/DexieDatabase';
 import {
@@ -170,6 +171,9 @@ function createInMemoryDeviceDb() {
       bulkDelete: vi.fn(async (keys: K[]) => {
         for (const k of keys) map.delete(k);
       }),
+      clear: vi.fn(async () => {
+        map.clear();
+      }),
       toArray: vi.fn(async () => getAll()),
       filter: vi.fn((pred: (item: T) => boolean) => ({
         toArray: vi.fn(async () => getAll().filter(pred)),
@@ -195,6 +199,36 @@ function createInMemoryDeviceDb() {
             toArray: vi.fn(async () => matched()),
             first: vi.fn(async () => matched()[0]),
             count: vi.fn(async () => matched().length)
+          };
+        },
+        between: (
+          lower: [string, unknown],
+          upper: [string, unknown],
+          includeLower = true,
+          includeUpper = true
+        ) => {
+          const targetUserId = lower[0];
+          const minVal = lower[1] === Dexie.minKey ? -Infinity : Number(lower[1]);
+          const maxVal = upper[1] === Dexie.maxKey ? Infinity : Number(upper[1]);
+          const matched = () =>
+            getAll()
+              .filter((r) => {
+                const rec = r as Record<string, unknown>;
+                if (rec.userId !== targetUserId) return false;
+                const idVal = Number(rec.id ?? 0);
+                const ge = includeLower ? idVal >= minVal : idVal > minVal;
+                const le = includeUpper ? idVal <= maxVal : idVal < maxVal;
+                return ge && le;
+              })
+              .sort(
+                (a, b) =>
+                  Number((a as Record<string, unknown>).id) - Number((b as Record<string, unknown>).id)
+              );
+          return {
+            limit: (limitNum: number) => ({
+              toArray: vi.fn(async () => matched().slice(0, limitNum))
+            }),
+            toArray: vi.fn(async () => matched())
           };
         }
       }))
@@ -910,8 +944,8 @@ describe('Cross-Device Account Deletion Propagation', () => {
     const deviceB = buildDeviceHarness(USER_ID, cloud);
 
     // Initial sync populates both devices identically
-    await deviceA.coordinator.sync();
-    await deviceB.coordinator.sync();
+    await deviceA.coordinator.run();
+    await deviceB.coordinator.run();
 
     expect(await deviceA.db.accounts.get(ACC_DELETE)).toBeDefined();
     expect(await deviceB.db.accounts.get(ACC_DELETE)).toBeDefined();
@@ -920,8 +954,9 @@ describe('Cross-Device Account Deletion Propagation', () => {
     await deviceA.deleteAccountUseCase.execute(ACC_DELETE, USER_ID);
     expect(await deviceA.db.accounts.get(ACC_DELETE)).toBeUndefined();
 
-    const pushSummaryA = await deviceA.coordinator.sync();
-    expect(pushSummaryA.pushedCount).toBe(1);
+    const pushSummaryA = await deviceA.coordinator.run();
+    expect(pushSummaryA.syncedCount).toBe(1);
+    expect(pushSummaryA.accounts.syncedCount).toBe(1);
 
     // Cloud retains immutable deletion tombstone (hidden from normal queries)
     const tombstone = cloud.accounts.get(ACC_DELETE);
@@ -937,11 +972,12 @@ describe('Cross-Device Account Deletion Propagation', () => {
     ).toContain(ACC_DELETE);
 
     // Device A's subsequent sync does not recreate ACC_DELETE
-    await deviceA.coordinator.sync();
+    await deviceA.coordinator.run();
     expect(await deviceA.db.accounts.get(ACC_DELETE)).toBeUndefined();
 
     // Device B refreshes / syncs and removes stale ACC_DELETE locally
-    await deviceB.coordinator.sync();
+    const pullSummaryB = await deviceB.coordinator.run();
+    expect(pullSummaryB.failedCount).toBe(0);
 
     expect(await deviceB.db.accounts.get(ACC_DELETE)).toBeUndefined();
     expect(await deviceB.db.accounts.get(ACC_KEEP)).toBeDefined();
@@ -957,7 +993,7 @@ describe('Cross-Device Account Deletion Propagation', () => {
     const deviceC = buildDeviceHarness(USER_ID, cloud);
 
     // Device B initially has ACC_DELETE and ACC_KEEP locally
-    await deviceB.coordinator.sync();
+    await deviceB.coordinator.run();
     expect(await deviceB.db.accounts.get(ACC_DELETE)).toBeDefined();
 
     // Cloud transitions ACC_DELETE to tombstoned v2
@@ -985,7 +1021,7 @@ describe('Cross-Device Account Deletion Propagation', () => {
     expect(await deviceB.db.accounts.get(ACC_KEEP)).toBeDefined();
 
     // Fresh Device C syncing after deletion never creates ACC_DELETE locally
-    await deviceC.coordinator.sync();
+    await deviceC.coordinator.run();
     expect(await deviceC.db.accounts.get(ACC_DELETE)).toBeUndefined();
     expect(await deviceC.db.accounts.get(ACC_KEEP)).toBeDefined();
     expect(await deviceC.db.accounts.get(ACC_PB)).toBeDefined();
@@ -995,12 +1031,12 @@ describe('Cross-Device Account Deletion Propagation', () => {
     const deviceA = buildDeviceHarness(USER_ID, cloud);
     const deviceB = buildDeviceHarness(USER_ID, cloud);
 
-    await deviceA.coordinator.sync();
-    await deviceB.coordinator.sync();
+    await deviceA.coordinator.run();
+    await deviceB.coordinator.run();
 
     // Device A deletes ACC_DELETE and syncs tombstone
     await deviceA.deleteAccountUseCase.execute(ACC_DELETE, USER_ID);
-    await deviceA.coordinator.sync();
+    await deviceA.coordinator.run();
 
     // Device B edited ACC_DELETE locally while offline and queued an UPDATE outbox entry
     const localB = (await deviceB.db.accounts.get(ACC_DELETE))!;
@@ -1035,15 +1071,17 @@ describe('Cross-Device Account Deletion Propagation', () => {
     expect((await deviceB.db.accounts.get(ACC_DELETE))?.name).toBe('Offline Edited Account');
     expect(await deviceB.outboxManager.getPendingEntries(USER_ID)).toHaveLength(1);
 
-    // Full sync rejects overwriting cloud tombstone instead of recreating or erasing local data silently
-    await expect(deviceB.coordinator.sync()).rejects.toThrow(SyncConflictError);
+    // Full sync rejects overwriting cloud tombstone (records account push failure) and Stage 9A keeps local pending account intact
+    const syncResB = await deviceB.coordinator.run();
+    expect(syncResB.accounts.failedCount).toBe(1);
     expect(cloud.accounts.get(ACC_DELETE)?.deleted_at).toBeTruthy();
     expect((await deviceB.db.accounts.get(ACC_DELETE))?.name).toBe('Offline Edited Account');
+    expect(await deviceB.outboxManager.getPendingEntries(USER_ID)).toHaveLength(1);
   });
 
   it('4. protects local referencing records, pending dependent outbox writes, system accounts, and newer local versions without cascading', async () => {
     const deviceB = buildDeviceHarness(USER_ID, cloud);
-    await deviceB.coordinator.sync();
+    await deviceB.coordinator.run();
 
     // Cloud deletes ACC_DELETE
     cloud.accounts.set(ACC_DELETE, {
@@ -1061,7 +1099,6 @@ describe('Cross-Device Account Deletion Propagation', () => {
       amountPaise: 1200,
       currency: 'INR',
       accountId: ACC_DELETE,
-      account_id: ACC_DELETE,
       categoryId: CAT_EXPENSE,
       title: 'Offline Expense on Deleted Account',
       transactionDate: ISO_3,
@@ -1137,7 +1174,6 @@ describe('Cross-Device Account Deletion Propagation', () => {
       amountPaise: 50000,
       borrowingDate: ISO_1,
       receivingAccountId: ACC_DELETE,
-      receiving_account_id: ACC_DELETE,
       transactionId: TX_KEEP,
       status: 'active',
       version: 1,
@@ -1156,7 +1192,6 @@ describe('Cross-Device Account Deletion Propagation', () => {
       amountPaise: 10000,
       repaymentDate: ISO_2,
       paymentAccountId: ACC_DELETE,
-      payment_account_id: ACC_DELETE,
       transactionId: TX_KEEP,
       version: 1,
       createdAt: ISO_2,
@@ -1175,14 +1210,27 @@ describe('Cross-Device Account Deletion Propagation', () => {
     expect(versionConflictRes.conflictCount).toBe(1);
     expect(versionConflictRes.deletedCount).toBe(0);
     expect(await deviceB.db.accounts.get(ACC_DELETE)).toBeDefined();
+
+    // Case 4d: Cloud tombstone targeting system Personal Borrowings account is rejected without deletion
+    await deviceB.db.accounts.delete(ACC_DELETE);
+    cloud.accounts.set(ACC_PB, {
+      ...cloud.accounts.get(ACC_PB)!,
+      deleted_at: ISO_2,
+      updated_at: ISO_2,
+      version: 2
+    });
+    const systemConflictRes = await deviceB.accountReconciler.pullAndReconcile(USER_ID);
+    expect(systemConflictRes.conflictCount).toBe(1);
+    expect(systemConflictRes.deletedCount).toBe(0);
+    expect(await deviceB.db.accounts.get(ACC_PB)).toBeDefined();
   });
 
   it('5. supports offline reconnect reconciliation and enforces cloud tombstone guards across SupabaseAccountRepository and dependent repositories', async () => {
     // 5a. End-to-end offline reconnect: Device A deletes ACC_DELETE and creates ACC_NEW while offline; Device B syncs on reconnect
     const deviceA = buildDeviceHarness(USER_ID, cloud);
     const deviceB = buildDeviceHarness(USER_ID, cloud);
-    await deviceA.coordinator.sync();
-    await deviceB.coordinator.sync();
+    await deviceA.coordinator.run();
+    await deviceB.coordinator.run();
 
     await deviceA.deleteAccountUseCase.execute(ACC_DELETE, USER_ID);
     await deviceA.db.accounts.put({
@@ -1216,8 +1264,8 @@ describe('Cross-Device Account Deletion Propagation', () => {
     });
 
     // Reconnect Device A -> pushes tombstone & ACC_NEW, then Device B reconnects -> deletes ACC_DELETE & inserts ACC_NEW
-    await deviceA.coordinator.sync();
-    await deviceB.coordinator.sync();
+    await deviceA.coordinator.run();
+    await deviceB.coordinator.run();
 
     expect(await deviceB.db.accounts.get(ACC_DELETE)).toBeUndefined();
     expect((await deviceB.db.accounts.get(ACC_NEW))?.name).toBe('Offline New Savings');

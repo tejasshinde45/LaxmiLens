@@ -10,17 +10,25 @@
 DO $$
 DECLARE
     v_constraint_name TEXT;
+    v_confdeltype "char";
 BEGIN
-    SELECT c.conname INTO v_constraint_name
-    FROM pg_constraint c
-    JOIN pg_attribute a
+    SELECT c.conname, c.confdeltype
+    INTO v_constraint_name, v_confdeltype
+    FROM pg_catalog.pg_constraint c
+    JOIN pg_catalog.pg_attribute a
       ON a.attrelid = c.conrelid
      AND a.attnum = ANY(c.conkey)
     WHERE c.conrelid = 'public.transactions'::regclass
       AND c.confrelid = 'public.accounts'::regclass
       AND c.contype = 'f'
+      AND array_length(c.conkey, 1) = 1
       AND a.attname = 'account_id'
     LIMIT 1;
+
+    -- Skip dropping and recreating FK when already ON DELETE RESTRICT ('r')
+    IF v_confdeltype = 'r' THEN
+        RETURN;
+    END IF;
 
     IF v_constraint_name IS NOT NULL THEN
         EXECUTE format(
@@ -36,7 +44,21 @@ BEGIN
         ON DELETE RESTRICT;
 END $$;
 
--- 2. Dependency-verified, version-checked safe account deletion RPC
+-- 2. Dependency-verified, version-checked safe account deletion RPC (legacy 2-arg)
+-- Guard against restoring the legacy physical-delete RPC if tombstones (20260110) are already installed.
+DO $migration$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid = 'public.accounts'::regclass
+          AND a.attname = 'deleted_at'
+          AND NOT a.attisdropped
+    ) OR to_regprocedure('public.safe_delete_account(uuid, integer, timestamptz)') IS NOT NULL THEN
+        RETURN;
+    END IF;
+
+    EXECUTE $fn$
 CREATE OR REPLACE FUNCTION public.safe_delete_account(
     p_account_id UUID,
     p_expected_version INT DEFAULT NULL
@@ -45,7 +67,7 @@ RETURNS BOOLEAN
 LANGUAGE plpgsql
 SECURITY INVOKER
 SET search_path = pg_catalog, public
-AS $$
+AS $_body$
 DECLARE
     v_user_id UUID;
     v_account public.accounts;
@@ -126,7 +148,9 @@ BEGIN
 
     RETURN TRUE;
 END;
-$$;
+$_body$;
+$fn$;
 
-REVOKE ALL ON FUNCTION public.safe_delete_account(UUID, INT) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.safe_delete_account(UUID, INT) TO authenticated;
+    REVOKE ALL ON FUNCTION public.safe_delete_account(UUID, INT) FROM PUBLIC, anon;
+    GRANT EXECUTE ON FUNCTION public.safe_delete_account(UUID, INT) TO authenticated;
+END $migration$;

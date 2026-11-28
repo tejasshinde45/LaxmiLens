@@ -543,20 +543,18 @@ export class AccountReconciliationService {
 
         for (const tx of localTxs) {
           addLocalAccountRef(tx.accountId);
-          addLocalAccountRef(tx.account_id);
           addLocalAccountRef(tx.destinationAccountId);
-          addLocalAccountRef(tx.destination_account_id);
+          addLocalAccountRef(tx.targetAccountId);
         }
         for (const rule of localRules) {
           addLocalAccountRef(rule.accountId);
+          addLocalAccountRef(rule.targetAccountId);
         }
         for (const borrowing of localBorrowings) {
           addLocalAccountRef(borrowing.receivingAccountId);
-          addLocalAccountRef(borrowing.receiving_account_id);
         }
         for (const repayment of localRepayments) {
           addLocalAccountRef(repayment.paymentAccountId);
-          addLocalAccountRef(repayment.payment_account_id);
         }
 
         const localById = new Map<string, LocalAccountRecord>(
